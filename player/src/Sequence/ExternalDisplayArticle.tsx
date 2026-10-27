@@ -1,5 +1,5 @@
 import { type FC, type ReactElement } from "react";
-import { Audio, Sequence, Series } from "remotion";
+import { AbsoluteFill, Audio, Img, Sequence, Series } from "remotion";
 import type { z } from "zod";
 import { playerSchema, type processedManuscriptSchema } from "@videofy/types";
 import ArticleProgress from "../Components/ArticleProgress";
@@ -184,6 +184,15 @@ export const ExternalDisplayArticle: FC<Props> = ({
                   )}
                   durationInFrames={roundToNearestFrame(segment.end - segment.start)}
                 />
+              )}
+
+              {segment.overlay && (
+                <AbsoluteFill>
+                  <Img
+                    src={segment.overlay.url}
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  />
+                </AbsoluteFill>
               )}
 
               {primaryAsset && primaryAsset.type !== "map" && primaryAsset.byline && (

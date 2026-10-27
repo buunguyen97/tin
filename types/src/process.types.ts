@@ -82,6 +82,8 @@ export const processedManuscriptSchema = z.object({
       images: z
         .array(z.union([imageSchema, videoSchema, mapSchema]))
         .optional(),
+      // Static graphic (e.g. a transparent SVG card) drawn above the animated asset.
+      overlay: z.object({ url: z.string().url() }).optional(),
       start: z.number(),
       end: z.number(),
     })

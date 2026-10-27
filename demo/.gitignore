@@ -1,0 +1,10 @@
+.model-cache/
+__pycache__/
+assets/
+props*.json
+tts-*.json
+config.json
+service-account*.json
+images.json
+sources.md
+work/

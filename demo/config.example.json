@@ -1,0 +1,173 @@
+{
+  "sheet_id": "DÁN_ID_GOOGLE_SHEET_VÀO_ĐÂY",
+  "sheet_name": "Tin",
+  "sheet_gid": 0,
+  "service_account_file": "",
+  "voice": "Hải Đăng",
+  "brand": "TIN TỨC KINH TẾ VIỆT NAM",
+  "outro": "",
+  "intro_image": "",
+  "programmes": [
+    {
+      "id": "tong-hop",
+      "title": "TIN NỔI BẬT TRONG NGÀY",
+      "filter": {
+        "hot": true
+      },
+      "min": 3,
+      "max": 6,
+      "intro": "Điểm tin nổi bật",
+      "intro_hook": "Những sự kiện đáng chú ý có thể bạn đã bỏ lỡ.",
+      "intro_title": [
+        "SỰ KIỆN NỔI BẬT",
+        "TRONG NGÀY"
+      ],
+      "intro_tagline": "CÓ THỂ BẠN ĐÃ BỎ LỠ",
+      "intro_accent": "#4ADE80"
+    },
+    {
+      "id": "vi-mo-chinh-sach",
+      "title": "ĐIỂM TIN VĨ MÔ – CHÍNH SÁCH",
+      "filter": {
+        "nganh": "Vĩ mô – Chính sách"
+      },
+      "min": 2,
+      "max": 5,
+      "accent": "#8EBAFF",
+      "intro": "Điểm tin vĩ mô, chính sách",
+      "intro_hook": "Cùng điểm qua những tin đáng chú ý nhất.",
+      "intro_title": [
+        "ĐIỂM TIN",
+        "VĨ MÔ – CHÍNH SÁCH"
+      ],
+      "intro_tagline": "NHỮNG TIN ĐÁNG CHÚ Ý NHẤT",
+      "intro_accent": "#8EBAFF"
+    },
+    {
+      "id": "tai-chinh-ngan-hang",
+      "title": "ĐIỂM TIN TÀI CHÍNH – NGÂN HÀNG",
+      "filter": {
+        "nganh": "Tài chính – Ngân hàng"
+      },
+      "min": 2,
+      "max": 5,
+      "accent": "#72F1C8",
+      "intro": "Điểm tin tài chính, ngân hàng",
+      "intro_hook": "Cùng điểm qua những tin đáng chú ý nhất.",
+      "intro_title": [
+        "ĐIỂM TIN",
+        "TÀI CHÍNH – NGÂN HÀNG"
+      ],
+      "intro_tagline": "NHỮNG TIN ĐÁNG CHÚ Ý NHẤT",
+      "intro_accent": "#72F1C8"
+    },
+    {
+      "id": "chung-khoan",
+      "title": "ĐIỂM TIN CHỨNG KHOÁN",
+      "filter": {
+        "nganh": "Chứng khoán"
+      },
+      "min": 2,
+      "max": 5,
+      "accent": "#FFD687",
+      "intro": "Điểm tin chứng khoán",
+      "intro_hook": "Cùng điểm qua những tin đáng chú ý nhất.",
+      "intro_title": [
+        "ĐIỂM TIN",
+        "CHỨNG KHOÁN"
+      ],
+      "intro_tagline": "NHỮNG TIN ĐÁNG CHÚ Ý NHẤT",
+      "intro_accent": "#FFD687"
+    },
+    {
+      "id": "doanh-nghiep",
+      "title": "ĐIỂM TIN DOANH NGHIỆP",
+      "filter": {
+        "nganh": "Doanh nghiệp"
+      },
+      "min": 2,
+      "max": 5,
+      "accent": "#FFA9B6",
+      "intro": "Điểm tin doanh nghiệp",
+      "intro_hook": "Cùng điểm qua những tin đáng chú ý nhất.",
+      "intro_title": [
+        "ĐIỂM TIN",
+        "DOANH NGHIỆP"
+      ],
+      "intro_tagline": "NHỮNG TIN ĐÁNG CHÚ Ý NHẤT",
+      "intro_accent": "#FFA9B6"
+    },
+    {
+      "id": "bat-dong-san",
+      "title": "ĐIỂM TIN BẤT ĐỘNG SẢN",
+      "filter": {
+        "nganh": "Bất động sản"
+      },
+      "min": 2,
+      "max": 5,
+      "accent": "#C4AEFF",
+      "intro": "Điểm tin bất động sản",
+      "intro_hook": "Cùng điểm qua những tin đáng chú ý nhất.",
+      "intro_title": [
+        "ĐIỂM TIN",
+        "BẤT ĐỘNG SẢN"
+      ],
+      "intro_tagline": "NHỮNG TIN ĐÁNG CHÚ Ý NHẤT",
+      "intro_accent": "#C4AEFF"
+    },
+    {
+      "id": "nang-luong",
+      "title": "ĐIỂM TIN NĂNG LƯỢNG",
+      "filter": {
+        "nganh": "Năng lượng"
+      },
+      "min": 2,
+      "max": 5,
+      "accent": "#FFB86B",
+      "intro": "Điểm tin năng lượng",
+      "intro_hook": "Cùng điểm qua những tin đáng chú ý nhất.",
+      "intro_title": [
+        "ĐIỂM TIN",
+        "NĂNG LƯỢNG"
+      ],
+      "intro_tagline": "NHỮNG TIN ĐÁNG CHÚ Ý NHẤT",
+      "intro_accent": "#FFB86B"
+    },
+    {
+      "id": "cong-nghe",
+      "title": "ĐIỂM TIN CÔNG NGHỆ",
+      "filter": {
+        "nganh": "Công nghệ"
+      },
+      "min": 2,
+      "max": 5,
+      "accent": "#7FE3FF",
+      "intro": "Điểm tin công nghệ",
+      "intro_hook": "Cùng điểm qua những tin đáng chú ý nhất.",
+      "intro_title": [
+        "ĐIỂM TIN",
+        "CÔNG NGHỆ"
+      ],
+      "intro_tagline": "NHỮNG TIN ĐÁNG CHÚ Ý NHẤT",
+      "intro_accent": "#7FE3FF"
+    },
+    {
+      "id": "hang-khong-du-lich",
+      "title": "ĐIỂM TIN HÀNG KHÔNG – DU LỊCH",
+      "filter": {
+        "nganh": "Hàng không – Du lịch"
+      },
+      "min": 2,
+      "max": 5,
+      "accent": "#F7A8FF",
+      "intro": "Điểm tin hàng không, du lịch",
+      "intro_hook": "Cùng điểm qua những tin đáng chú ý nhất.",
+      "intro_title": [
+        "ĐIỂM TIN",
+        "HÀNG KHÔNG – DU LỊCH"
+      ],
+      "intro_tagline": "NHỮNG TIN ĐÁNG CHÚ Ý NHẤT",
+      "intro_accent": "#F7A8FF"
+    }
+  ]
+}

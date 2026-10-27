@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Điểm tin Studio</title>
+<style>
+:root{--bg:#f4f6f9;--panel:#fff;--ink:#0f1722;--muted:#5b6878;--line:#dfe4ea;--accent:#0f766e;--accent-ink:#fff;--warn-bg:#fff7e6;--warn:#8a5a00;--err-bg:#fdecec;--err:#a12828;--ok:#0f766e;--code:#0b1220;--code-ink:#cfd8e3;--chip:#eef1f5}
+@media (prefers-color-scheme:dark){:root{--bg:#0b1017;--panel:#121923;--ink:#e8edf3;--muted:#91a0b2;--line:#253041;--accent:#3cc6b4;--accent-ink:#04201c;--warn-bg:#2b2210;--warn:#f2c46b;--err-bg:#2c1416;--err:#ff8f8f;--ok:#3cc6b4;--code:#070b11;--code-ink:#b9c6d6;--chip:#1b2431}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 24px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:18px;margin:0;font-weight:700}
+.pill{font-size:13px;padding:3px 10px;border-radius:99px;background:var(--chip);color:var(--muted)}
+.pill.ok{color:var(--ok)} .pill.bad{color:var(--err);background:var(--err-bg)}
+header a{font-size:13px;color:var(--accent)}
+main{display:grid;grid-template-columns:320px 1fr;gap:20px;padding:20px 24px;max-width:1600px;margin:0 auto}
+@media (max-width:900px){main{grid-template-columns:1fr;padding:16px}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 12px}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+input,select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+.buttons{display:grid;gap:8px;margin-top:16px}
+button{padding:9px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:inherit;font-weight:600;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button.small{padding:5px 10px;font-size:13px}
+button:disabled{opacity:.5;cursor:not-allowed}
+.hint{font-size:12px;color:var(--muted);margin:8px 0 0}
+.side{display:grid;gap:20px;align-content:start}
+.steps{list-style:none;padding:0;margin:0;display:grid;gap:6px}
+.steps li{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--muted)}
+.steps li::before{content:"";width:10px;height:10px;border-radius:50%;border:2px solid var(--line);flex:none}
+.steps li.active{color:var(--ink);font-weight:600}.steps li.active::before{border-color:var(--accent);border-top-color:transparent;animation:spin 1s linear infinite}
+.steps li.done::before{background:var(--ok);border-color:var(--ok)}
+.steps li.fail{color:var(--err)}.steps li.fail::before{background:var(--err);border-color:var(--err)}
+@keyframes spin{to{transform:rotate(360deg)}}
+.notes{display:grid;gap:6px;margin-top:12px}
+.note{font-size:13px;padding:7px 10px;border-radius:8px;background:var(--warn-bg);color:var(--warn)}
+.note.err{background:var(--err-bg);color:var(--err)} .note.ok{background:var(--chip);color:var(--ok)}
+details{margin-top:12px}summary{cursor:pointer;font-size:13px;color:var(--muted)}
+pre{background:var(--code);color:var(--code-ink);font:12px/1.5 ui-monospace,Menlo,monospace;padding:10px;border-radius:8px;max-height:300px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.days{display:flex;flex-wrap:wrap;gap:6px}
+.days button{font-weight:500}.days button.sel{border-color:var(--accent);color:var(--accent)}
+.content{display:grid;gap:20px;align-content:start;min-width:0}
+.summary{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.summary h2{margin:0;font-size:20px;text-transform:none;letter-spacing:0;color:var(--ink)}
+.summary span{color:var(--muted);font-size:14px}
+.skipped{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.skipped span{font-size:12px;padding:3px 10px;border-radius:99px;background:var(--chip);color:var(--muted)}
+.progs{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.prog{border:1px solid var(--line);border-radius:12px;background:var(--panel);overflow:hidden;display:flex;flex-direction:column;border-top:4px solid var(--c,var(--accent))}
+.prog .top{padding:12px 14px;display:flex;justify-content:space-between;align-items:start;gap:8px}
+.prog h3{margin:0;font-size:15px;line-height:1.3}
+.prog .meta{font-size:12px;color:var(--muted)}
+.media{position:relative;aspect-ratio:9/16;background:#000;max-height:520px;margin:0 auto;width:100%}
+.media video,.media img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.media .tag{position:absolute;left:8px;top:8px;background:rgba(0,0,0,.65);color:#fff;font-size:11px;padding:2px 8px;border-radius:99px}
+.media .empty{position:absolute;inset:0;display:grid;place-items:center;color:#94a3b8;font-size:13px;text-align:center;padding:20px}
+.links{display:flex;gap:12px;flex-wrap:wrap;font-size:13px;padding:8px 14px 0}.links a{color:var(--accent)}
+.items{list-style:none;margin:0;padding:10px 14px 14px;display:grid;gap:8px}
+.items li{display:grid;grid-template-columns:64px 1fr;gap:10px;align-items:center}
+.thumb{width:64px;aspect-ratio:1200/630;border-radius:6px;background:#0b1422 center/cover no-repeat}
+.items .t{font-size:13px;font-weight:600;line-height:1.3}
+.items .n{font-size:12px;color:var(--muted)}
+.items a{color:inherit;text-decoration:none}
+.empty-state{color:var(--muted);font-size:14px;padding:28px;text-align:center;border:1px dashed var(--line);border-radius:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Điểm tin Studio</h1>
+  <span id="cfg" class="pill">…</span>
+  <a id="sheetLink" target="_blank" rel="noopener" hidden>Mở Google Sheet ↗</a>
+</header>
+<main>
+  <div class="side">
+    <section class="panel">
+      <h2>Bản tin trong ngày</h2>
+      <label for="date">Ngày</label>
+      <input type="date" id="date">
+      <label for="voice">Giọng đọc mặc định</label>
+      <select id="voice"></select>
+      <label for="source">Nguồn tin</label>
+      <select id="source">
+        <option value="">Google Sheet</option>
+        <option value="sheet-template.csv">File mẫu (sheet-template.csv)</option>
+      </select>
+      <div class="buttons">
+        <button id="load">Xem trước: chia tin + tải ảnh</button>
+        <button id="make" class="primary">Tạo tất cả video</button>
+      </div>
+      <p class="hint">Mỗi ngành đủ tin “Đã duyệt” có một video, cộng một video tin nổi bật (cột Hot). “Tạo tất cả video” luôn đọc lại Sheet. Chương trình có <code>voice</code> riêng trong config.json thì dùng giọng đó.</p>
+    </section>
+    <section class="panel">
+      <h2>Tiến trình</h2>
+      <ul class="steps" id="steps"></ul>
+      <div class="notes" id="notes"></div>
+      <details id="logBox"><summary>Nhật ký chi tiết</summary><pre id="log"></pre></details>
+    </section>
+    <section class="panel">
+      <h2>Các ngày đã làm</h2>
+      <div class="days" id="days"></div>
+    </section>
+  </div>
+  <div class="content">
+    <section class="panel">
+      <div class="summary"><h2 id="dayTitle"></h2><span id="daySub"></span></div>
+      <div class="notes" id="planNotes"></div>
+      <div class="skipped" id="skipped"></div>
+    </section>
+    <div class="progs" id="progs"></div>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const vnDate = d => d ? d.split('-').reverse().join('/') : '';
+const ALL = ['sheet', 'images', 'prepare', 'render', 'verify'];
+let state = null, timer = null, init = false, wasRunning = false;
+
+function today() {
+  const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 10);
+}
+$('date').value = today();
+$('date').addEventListener('change', refresh);
+
+async function refresh() {
+  try { state = await (await fetch('/api/state?date=' + $('date').value)).json(); } catch { return; }
+  const c = state.config;
+  $('cfg').textContent = c.message; $('cfg').className = 'pill ' + (c.ok ? 'ok' : 'bad');
+  $('sheetLink').hidden = !c.url; if (c.url) $('sheetLink').href = c.url;
+  if (!init) {
+    $('voice').innerHTML = state.voices.map(([v, d]) => `<option value="${esc(v)}">${esc(v)} — ${esc(d)}</option>`).join('');
+    $('voice').value = c.voice || state.voices[0][0];
+    if (!c.ok) $('source').value = 'sheet-template.csv';
+    init = true;
+  }
+  renderJob(); renderDays(); renderDay();
+  clearTimeout(timer);
+  if (state.job.running) timer = setTimeout(refresh, 1500);
+  else if (wasRunning) { wasRunning = false; }
+}
+
+function renderJob() {
+  const job = state.job, log = job.log || [];
+  document.querySelectorAll('button[data-run], #load, #make').forEach(b => b.disabled = job.running);
+  let current = 0;
+  log.forEach(l => { const m = l.match(/^== BƯỚC (\d+)\//); if (m) current = +m[1]; });
+  $('steps').innerHTML = job.steps.length ? job.steps.map((s, i) => {
+    const n = i + 1;
+    const cls = n < current ? 'done' : n === current ? (job.running ? 'active' : job.code === 0 ? 'done' : 'fail') : '';
+    return `<li class="${cls}">${esc(state.labels[s])}</li>`;
+  }).join('') : '<li>Chưa chạy lần nào trong phiên này</li>';
+  const notes = log.filter(l => /^(LỖI|THẤT BẠI)|RENDER FAILED|Traceback/.test(l)).slice(-8)
+    .map(n => `<div class="note err">${esc(n)}</div>`);
+  const progress = [...log].reverse().find(l => /^\[\d+\/\d+\] |^Render \d+%/.test(l));
+  if (job.running && progress) notes.unshift(`<div class="note ok">${esc(progress)}</div>`);
+  if (!job.running && job.code === 0) notes.unshift(`<div class="note ok">✓ Hoàn tất bản ${vnDate(job.date)}${job.programmes.length ? ' (' + esc(job.programmes.join(', ')) + ')' : ''}</div>`);
+  $('notes').innerHTML = notes.join('');
+  const pre = $('log'), atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 20;
+  pre.textContent = log.join('\n');
+  if (atBottom) pre.scrollTop = pre.scrollHeight;
+}
+
+function renderDays() {
+  $('days').innerHTML = state.days.length
+    ? state.days.map(d => `<button class="small ${d === $('date').value ? 'sel' : ''}" data-day="${d}">${vnDate(d)}</button>`).join('')
+    : '<span class="hint">Chưa có</span>';
+}
+$('days').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { $('date').value = b.dataset.day; refresh(); } });
+
+function renderDay() {
+  const day = state.day, date = $('date').value;
+  $('dayTitle').textContent = 'Bản tin ' + vnDate(date);
+  if (!day) {
+    $('daySub').textContent = '';
+    $('planNotes').innerHTML = ''; $('skipped').innerHTML = '';
+    $('progs').innerHTML = '<div class="empty-state">Chưa có kế hoạch cho ngày này. Bấm “Xem trước” hoặc “Tạo tất cả video”.</div>';
+    return;
+  }
+  const ready = day.programmes.filter(p => p.status === 'ready'), done = ready.filter(p => p.video).length;
+  $('daySub').textContent = `${day.stories} tin đã duyệt • ${ready.length} video • ${done} đã render`;
+  $('planNotes').innerHTML = [...day.errors.map(e => `<div class="note err">${esc(e)}</div>`),
+                              ...day.warnings.map(w => `<div class="note">${esc(w)}</div>`)].join('');
+  $('skipped').innerHTML = day.programmes.filter(p => p.status !== 'ready')
+    .map(p => `<span title="${esc(p.reason)}">– ${esc(p.title)}: ${esc(p.reason)}</span>`).join('');
+  $('progs').innerHTML = ready.map(p => {
+    const media = p.video
+      ? `<video controls playsinline preload="metadata" src="${esc(p.video.url)}"></video>`
+      : p.intro ? `<img src="${esc(p.intro.frame)}" alt=""><img src="${esc(p.intro.card)}" alt=""><span class="tag">Xem trước intro</span>`
+      : `<div class="empty">Chưa render.<br>Bấm “Tạo video này”.</div>`;
+    const links = p.video ? `<div class="links"><a href="${esc(p.video.download)}" download>Tải MP4 (${p.video.mb} MB)</a><a href="${esc(p.video.contact)}" target="_blank">Ảnh tổng hợp</a><a href="${esc(p.video.sources)}" target="_blank">Nguồn tin</a></div>` : '';
+    const items = (p.items || []).map((s, i) => `
+      <li><div class="thumb" style="${s.image ? `background-image:url('${esc(s.image)}')` : `background:radial-gradient(circle,${esc(s.accent)}aa,#0b1422 75%)`}"></div>
+        <div><a href="${esc(s.url)}" target="_blank" rel="noopener" title="${esc(s.script)}"><div class="t">${i + 1}. ${esc(s.title)}</div></a>
+        <div class="n" style="color:${esc(s.accent)}">${esc(s.number)} ${esc(s.unit)}</div><div class="n">${esc(s.source)}</div></div></li>`).join('');
+    return `<article class="prog" style="--c:${esc(p.accent || '')}">
+      <div class="top"><div><h3>${esc(p.title)}</h3><div class="meta">${p.count} tin${p.voice ? ' • giọng ' + esc(p.voice) : ''}</div></div>
+        <button class="small" data-run="${esc(p.id)}">${p.video ? 'Tạo lại' : 'Tạo video này'}</button></div>
+      <div class="media">${media}</div>${links}<ul class="items">${items}</ul></article>`;
+  }).join('') || '<div class="empty-state">Không có video nào đủ tin cho ngày này.</div>';
+  document.querySelectorAll('button[data-run]').forEach(b => b.disabled = state.job.running);
+}
+$('progs').addEventListener('click', e => {
+  const b = e.target.closest('button[data-run]');
+  // Re-render one video from the current plan; edits on the sheet need "Tạo tất cả video".
+  if (b) run(['images', 'prepare', 'render', 'verify'], [b.dataset.run]);
+});
+
+async function run(steps, programmes = []) {
+  const body = {date: $('date').value, voice: $('voice').value, steps, programmes, csv: $('source').value || null};
+  const r = await fetch('/api/run', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (!r.ok) { alert((await r.json()).error || 'Không chạy được'); return; }
+  wasRunning = true; $('logBox').open = true;
+  refresh();
+}
+$('load').onclick = () => run(['sheet', 'images']);
+$('make').onclick = () => run(ALL);
+refresh();
+</script>
+</body>
+</html>

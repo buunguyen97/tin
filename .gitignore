@@ -27,3 +27,6 @@ coverage/
 projects/*
 !projects/.project-structure/
 !projects/.project-structure/**
+
+# Rendered videos, frames and QA files (contain news photos; internal use only)
+output/
