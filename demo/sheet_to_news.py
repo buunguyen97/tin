@@ -91,6 +91,9 @@ def approved_stories(records, day, freshness=None):
     The freshness rule applies once the sheet has a "Thời gian đăng" column."""
     stories, warnings, errors = [], [], []
     check_time = any('thoi_gian_dang' in rec for rec in records)
+    enforce_from = (freshness or {}).get('enforce_from')  # rows of earlier days predate the column
+    if enforce_from and day < Date.fromisoformat(enforce_from):
+        check_time = False
     cutoff = freshness_cutoff(day, freshness)
     used_before = {}
     for rec in records:  # URL -> first earlier day it appeared, so a story never airs twice

@@ -15,7 +15,8 @@
   },
   "freshness": {
     "anchor_hour": 7,
-    "max_age_hours": 14
+    "max_age_hours": 14,
+    "enforce_from": "2026-10-29"
   },
   "programmes": [
     {
