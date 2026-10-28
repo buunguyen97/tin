@@ -21,17 +21,19 @@ NHIỆM VỤ
    - Năng lượng
    - Công nghệ
    - Hàng không – Du lịch
+   - Pháp luật
+   Ngành Pháp luật: vụ án và vụ việc vi phạm đáng chú ý (kinh tế, tham nhũng, lừa đảo quy mô lớn, an ninh trật tự gây chú ý dư luận), khởi tố, truy tố, xét xử, bản án, xử phạt. Vụ án liên quan doanh nghiệp, ngân hàng, chứng khoán, bất động sản cũng xếp vào Pháp luật. Luật, nghị định, chính sách mới thì vẫn xếp vào Vĩ mô – Chính sách.
 2. Chọn 5–6 tin quan trọng nhất của cả ngày, đánh dấu Hot và xếp Thứ tự hot (1 = quan trọng nhất). Tin Hot vẫn thuộc ngành của nó.
 3. Đọc tab "Tin" của Google Sheet: <LINK GOOGLE SHEET>
    Bỏ qua tin đã có trong 3 ngày gần nhất (so URL và nội dung).
-4. Thêm mỗi tin một dòng MỚI vào cuối tab "Tin". Không sửa hay xoá dòng cũ.
+4. Thêm mỗi tin một dòng MỚI vào tab "Tin", ngay dưới dòng cuối có ô Ngày (cột A) không trống. Cột Hot là ô tick nên dòng trống vẫn có FALSE ở cột E; đừng coi đó là dữ liệu. Ghi bằng update vào đúng vùng A{n}:S{m} thay vì append. Không sửa hay xoá dòng cũ.
 
 CỘT (đúng thứ tự, giữ nguyên dòng tiêu đề)
 - Ngày: hôm nay, dạng DD/MM/YYYY
 - Thứ tự: thứ tự trong video của ngành (1 = tin đầu)
-- Trạng thái: luôn ghi "Nháp" (người biên tập đổi thành "Đã duyệt")
+- Trạng thái: luôn ghi "Đã duyệt": máy Mac tự làm video từ các dòng này, không có người duyệt. Chỉ ghi "Nháp" cho tin còn chỗ chưa chắc chắn (tin Nháp không vào video)
 - Ngành: CHÍNH XÁC một trong các tên ngành ở trên (kể cả dấu gạch "–")
-- Hot: TRUE nếu là tin nổi bật trong ngày, để trống nếu không
+- Hot: TRUE nếu là tin nổi bật trong ngày, FALSE nếu không
 - Thứ tự hot: 1–6 cho tin Hot, để trống nếu không
 - Chuyên mục: VIẾT HOA, tối đa 34 ký tự, ví dụ "KẾT QUẢ KINH DOANH", "KINH TẾ • TP.HCM"
 - Tiêu đề 1, Tiêu đề 2: tiêu đề chia 2 dòng, MỖI DÒNG TỐI ĐA 26 KÝ TỰ
@@ -49,11 +51,13 @@ QUY TẮC CHÍNH XÁC
 - Chỉ dùng số liệu có trong bài nguồn. Không làm tròn, không suy luận, không cộng dồn từ nhiều nguồn.
 - Phân biệt "phê duyệt/đề xuất/dự kiến" với "đã hoàn tất/đã có hiệu lực".
 - Một tin chỉ thuộc MỘT ngành và chỉ ghi MỘT dòng.
+- Tin vụ án: chỉ lấy từ cơ quan tố tụng, cơ quan công an hoặc báo chính thống. Ghi đúng giai đoạn (khởi tố, truy tố, xét xử sơ thẩm, phúc thẩm, bản án có hiệu lực). Gọi đúng "bị can" hoặc "bị cáo"; không khẳng định ai có tội khi chưa có bản án có hiệu lực. Không nêu tên, ảnh nạn nhân hay người dưới 18 tuổi; không mô tả chi tiết bạo lực. Với tin vụ án, Số liệu thường là số tiền thiệt hại, mức án hoặc số bị can.
 
 CUỐI CÙNG: trả lời ngắn gọn số tin đã thêm theo từng ngành, liệt kê các tin Hot, và tin nào cần người biên tập kiểm tra kỹ.
 ```
 
 ## Sau khi Claude chạy xong
 
-1. Mở Sheet, lọc theo Ngày hôm nay. Đọc từng dòng "Nháp", sửa nếu cần, rồi đổi Trạng thái thành **Đã duyệt** (hoặc **Bỏ**). Có thể bỏ tick Hot hoặc đổi Thứ tự hot.
-2. Mở Studio (`.venv-demo/bin/python demo/studio.py` → http://127.0.0.1:8790), bấm **Tạo tất cả video**.
+Không cần làm gì: máy Mac (tác vụ nền `com.tintuc.autorender`, cài bằng `sh demo/launchd/install.sh`) kiểm tra Sheet mỗi 10 phút trong khung `auto_render.window` của `demo/config.json`. Khi tin "Đã duyệt" của hôm nay thay đổi, nó tự tạo video vào `output/daily/<ngày>/` và hiện thông báo macOS. Nhật ký ở `output/auto-render.log`.
+
+Muốn sửa một tin sau khi video đã ra: sửa trên Sheet, lần kiểm tra kế tiếp sẽ tự render lại. Muốn bỏ một tin: đổi Trạng thái thành "Bỏ".

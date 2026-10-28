@@ -8,8 +8,8 @@ WORK = root / 'work'            # work/<date>/<programme>/news.json
 DEFAULT_TITLE = 'ĐIỂM TIN KINH TẾ'
 ACCENTS = ['#72F1C8', '#8EBAFF', '#FFD687', '#FFA9B6', '#C4AEFF', '#7FE3FF']
 SECTORS = ['Vĩ mô – Chính sách', 'Tài chính – Ngân hàng', 'Chứng khoán', 'Doanh nghiệp',
-           'Bất động sản', 'Năng lượng', 'Công nghệ', 'Hàng không – Du lịch']
-SECTOR_ACCENTS = ['#8EBAFF', '#72F1C8', '#FFD687', '#FFA9B6', '#C4AEFF', '#FFB86B', '#7FE3FF', '#F7A8FF']
+           'Bất động sản', 'Năng lượng', 'Công nghệ', 'Hàng không – Du lịch', 'Pháp luật']
+SECTOR_ACCENTS = ['#8EBAFF', '#72F1C8', '#FFD687', '#FFA9B6', '#C4AEFF', '#FFB86B', '#7FE3FF', '#F7A8FF', '#FF8A80']
 # VieNeu v3 Turbo presets (name, description); ⭐ marks the ones the VieNeu repo recommends.
 VOICES = [('Hải Đăng', 'Nam · Bắc · tự nhiên ⭐'), ('Mai Anh', 'Nữ · Bắc · tin tức ⭐'), ('Thùy Dung', 'Nữ · Nam · tin tức ⭐'),
           ('Minh Đức', 'Nam · Bắc · tin tức'), ('Minh Triết', 'Nam · Nam · tin tức'), ('Trúc Ly', 'Nữ · Bắc · tự nhiên ⭐'),

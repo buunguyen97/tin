@@ -37,6 +37,16 @@ Chạy bằng dòng lệnh, không cần giao diện:
 .venv-demo/bin/python demo/run_daily.py --steps images,prepare,render,verify --programmes tong-hop --voice 'Mai Anh'
 ```
 
+### Tự làm video (không cần bấm)
+
+Routine Claude ghi tin thẳng ở trạng thái "Đã duyệt". Trên máy Mac, cài tác vụ nền một lần:
+
+```sh
+sh demo/launchd/install.sh            # gỡ: sh demo/launchd/install.sh --uninstall
+```
+
+Tác vụ chạy `demo/auto_render.py` mỗi 10 phút trong khung `auto_render.window` (mặc định 7:00–12:00). Script chỉ render khi tin đã duyệt của hôm nay thay đổi so với lần trước, rồi hiện thông báo macOS. Nhật ký ở `output/auto-render.log`. Máy phải bật và không ngủ trong khung giờ đó. Chạy tay ngoài khung giờ: `.venv-demo/bin/python demo/auto_render.py --force`.
+
 ### Tùy chỉnh trong `demo/config.json`
 
 - `programmes`: danh sách video. Mỗi mục có các trường:
@@ -57,7 +67,7 @@ Thêm ngành: thêm một mục vào `programmes`, thêm tên ngành vào dropdo
 ### Kết nối Google Sheet
 
 1. Tạo Sheet và đặt tên tab là `Tin`. Import `demo/sheet-template.csv` bằng **Tệp → Nhập → Tải lên → Thay thế trang tính hiện tại**, và **bỏ chọn** “Chuyển đổi văn bản thành số, ngày tháng và công thức” để giữ nguyên `129,3%` và `25.10`. File mẫu có 5 tin ngày 27/10/2026, chia thành 3 video.
-2. Đặt định dạng cột **Số liệu** là Văn bản thuần túy. Thêm dropdown cho **Trạng thái** (Nháp / Đã duyệt / Bỏ) và **Ngành** (8 ngành trong config). Đổi cột **Hot** thành ô tick (Chèn → Hộp đánh dấu).
+2. Đặt định dạng cột **Số liệu** là Văn bản thuần túy. Thêm dropdown cho **Trạng thái** (Nháp / Đã duyệt / Bỏ) và **Ngành** (9 ngành trong config). Đổi cột **Hot** thành ô tick (Chèn → Hộp đánh dấu).
 3. Chép `demo/config.example.json` thành `demo/config.json` và điền `sheet_id`, tức đoạn giữa `/d/` và `/edit` trong link Sheet.
 4. Chọn một trong hai cách để repo đọc được Sheet:
    - **Đơn giản:** Share → “Bất kỳ ai có đường liên kết đều xem được”. Điền `sheet_gid` là số sau `#gid=` của tab `Tin`.

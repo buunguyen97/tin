@@ -7,6 +7,12 @@
   "brand": "TIN TỨC KINH TẾ VIỆT NAM",
   "outro": "",
   "intro_image": "",
+  "auto_render": {
+    "window": [
+      7,
+      12
+    ]
+  },
   "programmes": [
     {
       "id": "tong-hop",
@@ -168,6 +174,24 @@
       ],
       "intro_tagline": "NHỮNG TIN ĐÁNG CHÚ Ý NHẤT",
       "intro_accent": "#F7A8FF"
+    },
+    {
+      "id": "phap-luat",
+      "title": "ĐIỂM TIN PHÁP LUẬT",
+      "filter": {
+        "nganh": "Pháp luật"
+      },
+      "min": 2,
+      "max": 5,
+      "accent": "#FF8A80",
+      "intro": "Điểm tin pháp luật",
+      "intro_hook": "Cùng điểm qua những vụ việc đáng chú ý nhất.",
+      "intro_title": [
+        "ĐIỂM TIN",
+        "PHÁP LUẬT"
+      ],
+      "intro_tagline": "NHỮNG VỤ VIỆC ĐÁNG CHÚ Ý",
+      "intro_accent": "#FF8A80"
     }
   ]
 }
