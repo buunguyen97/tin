@@ -9,7 +9,7 @@ Sources, in order of preference:
   link export (config.json)        sheet shared as "anyone with the link can view"
 """
 import argparse, csv, io, json, os, re, shutil, ssl, sys
-from datetime import date as Date, datetime
+from datetime import date as Date, datetime, timedelta
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -46,6 +46,25 @@ def parse_date(value, default_year):
     return None
 
 
+def parse_datetime(value):
+    """Publication time as written by the routine or by Google Sheets' own date formatting."""
+    value = re.sub(r'\s+', ' ', str(value).strip())
+    for fmt in ('%d/%m/%Y %H:%M', '%d/%m/%Y %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d %H:%M:%S',
+                '%Y-%m-%dT%H:%M', '%Y-%m-%dT%H:%M:%S', '%H:%M %d/%m/%Y'):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            pass
+    return None
+
+
+def freshness_cutoff(day, freshness):
+    """Oldest accepted publication time: `max_age_hours` before `anchor_hour` on the edition day."""
+    freshness = freshness or {}
+    anchor = datetime.combine(day, datetime.min.time()) + timedelta(hours=freshness.get('anchor_hour', 7))
+    return anchor - timedelta(hours=freshness.get('max_age_hours', 14))
+
+
 def rows_to_dicts(rows):
     rows = [r for r in rows if any(str(c).strip() for c in r)]
     if not rows:
@@ -64,11 +83,21 @@ def _number(value):
         return float('inf')
 
 
-def approved_stories(records, day):
+def approved_stories(records, day, freshness=None):
     """Approved, valid rows for `day` as stories, plus warnings and errors.
 
-    A row with a missing required field is left out (and reported); the other rows still make videos."""
+    A row with a missing required field, a publication time older than the freshness window, or a URL
+    already used on an earlier day is left out (and reported); the other rows still make videos.
+    The freshness rule applies once the sheet has a "Thời gian đăng" column."""
     stories, warnings, errors = [], [], []
+    check_time = any('thoi_gian_dang' in rec for rec in records)
+    cutoff = freshness_cutoff(day, freshness)
+    used_before = {}
+    for rec in records:  # URL -> first earlier day it appeared, so a story never airs twice
+        d = parse_date(rec.get('ngay', ''), day.year)
+        if d and d < day and rec.get('url'):
+            used_before.setdefault(rec['url'].strip(), d)
+    seen_today = set()
     for n, rec in enumerate(records, start=2):  # row 1 is the header
         if parse_date(rec.get('ngay', ''), day.year) != day or normalise(rec.get('trang_thai', '')) not in APPROVED:
             continue
@@ -76,6 +105,21 @@ def approved_stories(records, day):
         missing = [col for col in REQUIRED if not rec.get(col)]
         if missing:
             errors.append(f'{label}: thiếu {", ".join(missing)}; bỏ qua tin này')
+            continue
+        url = rec['url'].strip()
+        if url in used_before:
+            errors.append(f'{label}: tin đã dùng ngày {used_before[url]:%d/%m}; bỏ qua tin cũ')
+            continue
+        if url in seen_today:
+            errors.append(f'{label}: trùng URL với một tin khác hôm nay; bỏ qua')
+            continue
+        seen_today.add(url)
+        published = parse_datetime(rec.get('thoi_gian_dang', ''))
+        if check_time and not published:
+            errors.append(f'{label}: thiếu hoặc sai "Thời gian đăng" (DD/MM/YYYY HH:MM); bỏ qua để tránh tin cũ')
+            continue
+        if published and published < cutoff:
+            errors.append(f'{label}: đăng lúc {published:%H:%M %d/%m}, trước mốc {cutoff:%H:%M %d/%m}; bỏ qua tin cũ')
             continue
         for col, limit in LIMITS.items():
             if len(rec.get(col, '')) > limit:
@@ -100,6 +144,8 @@ def approved_stories(records, day):
             story['image'] = image
         if rec.get('anh_nguon'):
             story['image_credit'] = rec['anh_nguon']
+        if published:
+            story['published'] = published.strftime('%Y-%m-%d %H:%M')
         stories.append({'story': story, 'row': n, 'sector': normalise(rec['nganh']), 'sector_label': rec['nganh'],
                         'hot': normalise(rec.get('hot', '')) in TRUE,
                         'order': _number(rec.get('thu_tu')), 'hot_order': _number(rec.get('thu_tu_hot'))})
@@ -213,7 +259,7 @@ def main(argv=None):
                 rows = list(csv.reader(f))
         else:
             rows = fetch_rows(config)
-        stories, warnings, errors = approved_stories(rows_to_dicts(rows), day)
+        stories, warnings, errors = approved_stories(rows_to_dicts(rows), day, config.get('freshness'))
     except SheetError as e:
         print('LỖI:', e, flush=True)
         return 1

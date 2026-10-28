@@ -59,7 +59,7 @@ def main(argv=None):
             log('Lượt trước còn đang chạy, bỏ qua')
             return 0
         try:
-            stories, _, _ = approved_stories(rows_to_dicts(fetch_rows(config)), day)
+            stories, _, _ = approved_stories(rows_to_dicts(fetch_rows(config)), day, config.get('freshness'))
         except SheetError as e:
             log('LỖI đọc Sheet:', e)
             return 1

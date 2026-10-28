@@ -78,6 +78,36 @@ class SheetTests(unittest.TestCase):
         self.assertTrue(any('tieu_de_1' in w for w in warnings))
         self.assertTrue(any('chữ số' in w for w in warnings))
 
+    def test_old_story_is_dropped(self):
+        rows = template_rows()
+        rows[1][COL['thoi_gian_dang']] = '26/10/2026 16:59'  # before 17:00 the evening before
+        rows[2][COL['thoi_gian_dang']] = '2026-10-26 17:00'  # exactly on the cutoff: kept
+        plans, _, errors = plan(rows)
+        self.assertEqual(len(errors), 1)
+        self.assertIn('Dòng 2: đăng lúc 16:59 26/10', errors[0])
+        self.assertEqual([s['number'] for s in plans['tong-hop'][0]['stories']], ['16', '129,3%', '25.10', '10'])
+
+    def test_missing_publish_time_is_dropped(self):
+        rows = template_rows()
+        rows[3][COL['thoi_gian_dang']] = ''
+        _, _, errors = plan(rows)
+        self.assertIn('Dòng 4: thiếu hoặc sai "Thời gian đăng"', errors[0])
+
+    def test_story_already_used_on_an_earlier_day_is_dropped(self):
+        rows = template_rows()
+        repeat = list(rows[1])
+        repeat[COL['ngay']] = '26/10/2026'
+        rows.append(repeat)
+        plans, _, errors = plan(rows)
+        self.assertEqual(errors, ['Dòng 2: tin đã dùng ngày 26/10; bỏ qua tin cũ'])
+        self.assertNotIn('230', [s['number'] for s in plans['tong-hop'][0]['stories']])
+
+    def test_freshness_window_is_configurable(self):
+        rows = template_rows()
+        stories, _, errors = approved_stories(rows_to_dicts(rows), DAY, {'anchor_hour': 7, 'max_age_hours': 6})
+        self.assertEqual(len(stories), 4)  # cutoff 01:00 27/10 drops only the 20:15 story of the 26th
+        self.assertIn('Dòng 2', errors[0])
+
     def test_missing_column(self):
         with self.assertRaisesRegex(SheetError, 'Thiếu cột'):
             rows_to_dicts([r[:3] for r in template_rows()])
