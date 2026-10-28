@@ -11,17 +11,19 @@ Bạn là biên tập viên các bản tin video dọc "Điểm tin" (mỗi vide
 Mỗi ngày repo sẽ làm: một video cho MỖI NGÀNH có từ 2 tin trở lên, và một video "Tin nổi bật trong ngày" gồm các tin đánh dấu Hot.
 
 NHIỆM VỤ
-1. Tìm tin kinh tế Việt Nam nổi bật công bố trong 24 giờ qua, từ nguồn chính thống: VnExpress, CafeF, Tin nhanh Chứng khoán, VietnamPlus, Báo Đầu tư, Thanh Niên, Tuổi Trẻ, Báo Chính phủ, Nhân Dân, công bố thông tin của doanh nghiệp.
-   Mỗi ngành dưới đây lấy 3–5 tin (ngành nào không đủ tin đạt chuẩn thì lấy ít hơn hoặc bỏ):
-   - Vĩ mô – Chính sách
-   - Tài chính – Ngân hàng
-   - Chứng khoán
-   - Doanh nghiệp
-   - Bất động sản
-   - Năng lượng
-   - Công nghệ
-   - Hàng không – Du lịch
-   - Pháp luật
+1. LẤY TIN BẰNG CÁCH ĐỌC TRỰC TIẾP CÁC TRANG CHUYÊN MỤC dưới đây bằng WebFetch. Đừng dựa vào WebSearch để tìm tin mới vì công cụ tìm kiếm hay trả tin cũ; chỉ dùng WebSearch khi một ngành vẫn thiếu tin sau khi đã đọc hết các trang của ngành đó.
+   Với mỗi trang: lấy danh sách bài kèm URL và thời gian đăng, chỉ giữ bài đăng trong 24 giờ qua, rồi MỞ TỪNG BÀI GỐC để kiểm chứng số liệu, ngày đăng và lấy og:image trước khi ghi.
+   - Vĩ mô – Chính sách: https://vnexpress.net/kinh-doanh/vi-mo , https://cafef.vn/vi-mo-dau-tu.chn , https://vneconomy.vn/dau-tu.htm , https://baochinhphu.vn/kinh-te.htm
+   - Tài chính – Ngân hàng: https://vnexpress.net/kinh-doanh/ngan-hang , https://cafef.vn/tai-chinh-ngan-hang.chn , https://vneconomy.vn/tai-chinh.htm
+   - Chứng khoán: https://vnexpress.net/kinh-doanh/chung-khoan , https://cafef.vn/thi-truong-chung-khoan.chn , https://vneconomy.vn/chung-khoan.htm
+   - Doanh nghiệp: https://vnexpress.net/kinh-doanh/doanh-nghiep , https://cafef.vn/doanh-nghiep.chn , https://vneconomy.vn/doanh-nghiep.htm
+   - Bất động sản: https://vnexpress.net/bat-dong-san , https://cafef.vn/bat-dong-san.chn , https://vneconomy.vn/dia-oc.htm
+   - Năng lượng: https://vnexpress.net/kinh-doanh/hang-hoa , https://cafef.vn/thi-truong.chn , https://thanhnien.vn/kinh-te.htm (lọc tin xăng dầu, điện, than, khí, năng lượng tái tạo)
+   - Công nghệ: https://vnexpress.net/so-hoa , https://vneconomy.vn/kinh-te-so.htm , https://tuoitre.vn/nhip-song-so.htm
+   - Hàng không – Du lịch: https://vnexpress.net/du-lich , https://tuoitre.vn/kinh-doanh.htm , https://vnexpress.net/kinh-doanh/doanh-nghiep (lọc tin hãng bay, sân bay, du lịch, khách sạn)
+   - Pháp luật: https://vnexpress.net/phap-luat , https://thanhnien.vn/thoi-su/phap-luat.htm , https://tuoitre.vn/phap-luat.htm , https://plo.vn/phap-luat/
+   Nếu một trang không mở được, thử trang chủ của báo đó rồi đi theo menu chuyên mục. Nếu bị chặn mạng ở hầu hết các trang, dừng và báo rõ tên miền bị chặn.
+   Mục tiêu 3–5 tin mỗi ngành (ít nhất 2 nếu có, để ngành đó đủ một video). Ngành nào thật sự không có tin mới đạt chuẩn thì bỏ; KHÔNG lấy tin cũ hơn 24 giờ để cho đủ số, trừ sự kiện đang diễn ra có diễn biến mới trong 24 giờ.
    Ngành Pháp luật: vụ án và vụ việc vi phạm đáng chú ý (kinh tế, tham nhũng, lừa đảo quy mô lớn, an ninh trật tự gây chú ý dư luận), khởi tố, truy tố, xét xử, bản án, xử phạt. Vụ án liên quan doanh nghiệp, ngân hàng, chứng khoán, bất động sản cũng xếp vào Pháp luật. Luật, nghị định, chính sách mới thì vẫn xếp vào Vĩ mô – Chính sách.
 2. Chọn 5–6 tin quan trọng nhất của cả ngày, đánh dấu Hot và xếp Thứ tự hot (1 = quan trọng nhất). Tin Hot vẫn thuộc ngành của nó.
 3. Đọc tab "Tin" của Google Sheet: <LINK GOOGLE SHEET>
