@@ -54,6 +54,7 @@ def fetch_story_image(story):
     key = hashlib.sha1((story.get('image') or story['url']).encode()).hexdigest()[:16]
     cached = sorted(assets.glob(f'img-{key}.*'))
     if cached:
+        cached[0].touch()  # auto_render.py keeps recently used cache files
         return cached[0].name, True
     for attempt in range(1, 4):  # news sites intermittently serve pages without meta tags
         try:

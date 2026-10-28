@@ -1,10 +1,13 @@
 """Edition files (one news.json per video) and the programmes that produce them."""
-import json, re, unicodedata
+import fcntl, json, re, unicodedata
+from contextlib import contextmanager
 from pathlib import Path
 
 root = Path(__file__).resolve().parent
 NEWS_FILE = root / 'news.json'  # legacy single-video edition
 WORK = root / 'work'            # work/<date>/<programme>/news.json
+LOCK = WORK / 'pipeline.lock'
+BUSY = 75  # exit code of run_daily.py when another run holds the lock (EX_TEMPFAIL)
 DEFAULT_TITLE = 'ĐIỂM TIN KINH TẾ'
 ACCENTS = ['#72F1C8', '#8EBAFF', '#FFD687', '#FFA9B6', '#C4AEFF', '#7FE3FF']
 SECTORS = ['Vĩ mô – Chính sách', 'Tài chính – Ngân hàng', 'Chứng khoán', 'Doanh nghiệp',
@@ -88,6 +91,20 @@ def save_edition(edition, path=NEWS_FILE):
     stories = ',\n'.join('  ' + json.dumps(s, ensure_ascii=False, separators=(',', ':')) for s in edition['stories'])
     head = {k: v for k, v in edition.items() if k != 'stories'}
     Path(path).write_text(json.dumps(head, ensure_ascii=False)[:-1] + ',\n "stories":[\n' + stories + '\n ]}\n')
+
+
+@contextmanager
+def pipeline_lock():
+    """Held by run_daily.py for a whole run: Studio and launchd must not rebuild work/<date> under each other.
+    Yields False when another run already holds it."""
+    WORK.mkdir(parents=True, exist_ok=True)
+    with open(LOCK, 'w') as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        yield True
 
 
 def display_date(date):

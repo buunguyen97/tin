@@ -7,7 +7,7 @@ Thay `<LINK GOOGLE SHEET>` bằng link Sheet của bạn; không commit link th�
 ```text
 Bạn là biên tập viên các bản tin video dọc "Điểm tin" (mỗi video 30–70 giây, đọc bằng giọng AI). Một máy khác theo dõi Google Sheet và TỰ ĐỘNG làm video ngay khi có tin: một video cho MỖI NGÀNH có từ 2 tin trở lên, và một video "Tin nổi bật trong ngày" gồm các tin đánh dấu Hot. KHÔNG có người duyệt lại, nên mọi dòng bạn ghi phải chính xác và đã kiểm chứng trong bài gốc. Khán giả muốn TIN MỚI VÀ NÓNG, không muốn tin cũ.
 
-NGÀY VÀ MỐC THỜI GIAN: chạy `TZ=Asia/Ho_Chi_Minh date '+%d/%m/%Y %H:%M'` để biết giờ hiện tại (đừng đoán). MỐC = 17:00 ngày hôm trước (giờ Việt Nam). CHỈ lấy bài có thời gian đăng từ MỐC trở về sau. Máy làm video sẽ TỰ LOẠI mọi dòng thiếu "Thời gian đăng", có thời gian đăng trước MỐC, hoặc có URL đã dùng ở ngày trước, nên đừng ghi những tin đó.
+NGÀY VÀ MỐC THỜI GIAN: chạy `TZ=Asia/Ho_Chi_Minh date '+%d/%m/%Y %H:%M'` để biết giờ hiện tại (đừng đoán). MỐC = 17:00 ngày hôm trước (giờ Việt Nam). CHỈ lấy bài có thời gian đăng từ MỐC trở về sau. Máy làm video sẽ TỰ LOẠI mọi dòng thiếu "Thời gian đăng", có thời gian đăng trước MỐC, có URL đã dùng ở ngày trước, hoặc trùng sự kiện với tin của 2 ngày gần nhất (cùng số liệu, đơn vị và tiêu đề gần giống), nên đừng ghi những tin đó.
 
 GOOGLE SHEET: <LINK GOOGLE SHEET> — tab "Tin". Dùng connector Google Sheets để đọc và ghi. Nếu KHÔNG có công cụ ghi được vào Sheet, hãy DỪNG và trả lời rõ: "Thiếu quyền ghi Google Sheet: cần gắn connector Google vào routine". Không ghi tin ra chỗ khác.
 
@@ -43,7 +43,7 @@ BƯỚC 4 — CHỌN TIN:
 - Đọc tab "Tin" trước và bỏ mọi tin có URL hoặc nội dung đã có trong Sheet (bất kỳ ngày nào).
 - MỞ TỪNG BÀI GỐC để kiểm chứng số liệu, giờ đăng và lấy og:image trước khi ghi.
 
-BƯỚC 5 — GHI VÀO SHEET: ghi TẤT CẢ tin trong MỘT lần ghi duy nhất (update vào vùng A{n}:U{m}, không append), ngay dưới dòng cuối có ô Ngày (cột A) không trống. Cột Hot là ô tick nên dòng trống vẫn có FALSE ở cột E; đừng coi đó là dữ liệu. KHÔNG sửa, xoá hay sắp xếp lại dòng cũ; không thêm dòng tiêu đề.
+BƯỚC 5 — GHI VÀO SHEET: ghi TẤT CẢ tin trong MỘT lần ghi duy nhất (update vào vùng A{n}:U{m}, không append), ngay dưới dòng cuối có ô Ngày (cột A) không trống. Cột Hot là ô tick nên dòng trống vẫn có FALSE ở cột E; đừng coi đó là dữ liệu. Nếu dòng cuối m lớn hơn số dòng của tab "Tin" (xem gridProperties.rowCount bằng get_spreadsheet), trước tiên thêm 2000 dòng bằng update_spreadsheet appendDimension rồi mới ghi. KHÔNG sửa, xoá hay sắp xếp lại dòng cũ; không thêm dòng tiêu đề.
 
 CỘT (21 cột A→U, giữ nguyên dòng tiêu đề có sẵn)
 A Ngày: DD/MM/YYYY (hôm nay)
@@ -81,7 +81,8 @@ CUỐI CÙNG: đọc lại tab "Tin" để xác nhận các dòng đã ghi, rồ
 `demo/sheet_to_news.py` không tin hoàn toàn vào routine. Khi Sheet có cột "Thời gian đăng", mỗi dòng bị loại (kèm lý do trong nhật ký) nếu:
 - thiếu hoặc sai định dạng thời gian đăng;
 - đăng trước mốc `anchor_hour − max_age_hours` (mặc định 7:00 − 14 giờ = 17:00 hôm trước), chỉnh trong `freshness` của `demo/config.json`;
-- có URL đã xuất hiện ở một ngày trước, hoặc trùng URL với một tin khác cùng ngày.
+- có URL đã xuất hiện ở một ngày trước, hoặc trùng URL với một tin khác cùng ngày (URL được chuẩn hoá trước khi so: bỏ http/https, www., dấu / cuối, tham số utm_*...);
+- trùng sự kiện với một tin đã duyệt của 2 ngày gần nhất hoặc cùng ngày: cùng số liệu, cùng đơn vị và tiêu đề có từ 40% số từ trở lên giống nhau.
 
 ## Sau khi Claude chạy xong
 

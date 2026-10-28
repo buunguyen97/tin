@@ -12,7 +12,7 @@ import argparse, csv, io, json, os, re, shutil, ssl, sys
 from datetime import date as Date, datetime, timedelta
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 from edition import WORK, default_programmes, normalise, save_edition, spoken_date
@@ -24,6 +24,9 @@ REQUIRED = ['nganh', 'chuyen_muc', 'tieu_de_1', 'so_lieu', 'don_vi', 'nguon', 'u
 APPROVED = {'da_duyet', 'duyet', 'ok', 'approved'}
 TRUE = {'true', 'x', 'co', '1', 'yes', 'hot', 'v'}
 NO_IMAGE = {'none', 'khong', 'khong_co', 'no'}
+TRACKING = re.compile(r'utm_.*|fbclid|gclid|zarsrc|gidzl|ref|source|from|cmpid', re.I)
+EVENT_DAYS = 2      # a story repeating an event of the last two days is dropped
+EVENT_OVERLAP = .4  # share of headline words two rows about the same event have in common
 # Longest text that still fits its slot on the 1080px card (Arial, sizes in prepare.py).
 LIMITS = {'chuyen_muc': 34, 'tieu_de_1': 26, 'tieu_de_2': 26, 'so_lieu': 9, 'don_vi': 40,
           'chi_tiet_1': 42, 'chi_tiet_2': 42, 'ghi_chu': 110, 'nguon': 55, 'kich_ban': 450}
@@ -65,6 +68,27 @@ def freshness_cutoff(day, freshness):
     return anchor - timedelta(hours=freshness.get('max_age_hours', 14))
 
 
+def canonical_url(url):
+    """Same article whatever the scheme, www./m. prefix, trailing slash, fragment or tracking parameters."""
+    parts = urlsplit(url.strip())
+    host = re.sub(r'^(www|m)\.', '', parts.netloc.lower())
+    query = urlencode(sorted((k, v) for k, v in parse_qsl(parts.query) if not TRACKING.fullmatch(k)))
+    return host + parts.path.rstrip('/') + ('?' + query if query else '')
+
+
+def event_key(rec):
+    """The figure and headline words of a row; two outlets reporting one event share the figure."""
+    words = set(normalise(rec.get('tieu_de_1', '') + ' ' + rec.get('tieu_de_2', '')).split('_')) - {''}
+    return re.sub(r'\s+', '', rec.get('so_lieu', '')).lower(), normalise(rec.get('don_vi', '')), words
+
+
+def same_event(a, b):
+    (num_a, unit_a, words_a), (num_b, unit_b, words_b) = a, b
+    if not num_a or num_a != num_b or unit_a != unit_b or not words_a or not words_b:
+        return False
+    return len(words_a & words_b) / len(words_a | words_b) >= EVENT_OVERLAP
+
+
 def rows_to_dicts(rows):
     rows = [r for r in rows if any(str(c).strip() for c in r)]
     if not rows:
@@ -95,11 +119,13 @@ def approved_stories(records, day, freshness=None):
     if enforce_from and day < Date.fromisoformat(enforce_from):
         check_time = False
     cutoff = freshness_cutoff(day, freshness)
-    used_before = {}
-    for rec in records:  # URL -> first earlier day it appeared, so a story never airs twice
+    used_before, recent_events = {}, []
+    for n, rec in enumerate(records, start=2):  # URL -> first earlier day it appeared, so a story never airs twice
         d = parse_date(rec.get('ngay', ''), day.year)
         if d and d < day and rec.get('url'):
-            used_before.setdefault(rec['url'].strip(), d)
+            used_before.setdefault(canonical_url(rec['url']), d)
+            if (day - d).days <= EVENT_DAYS and normalise(rec.get('trang_thai', '')) in APPROVED:
+                recent_events.append((f'dòng {n} ngày {d:%d/%m}', event_key(rec)))
     seen_today = set()
     for n, rec in enumerate(records, start=2):  # row 1 is the header
         if parse_date(rec.get('ngay', ''), day.year) != day or normalise(rec.get('trang_thai', '')) not in APPROVED:
@@ -109,7 +135,7 @@ def approved_stories(records, day, freshness=None):
         if missing:
             errors.append(f'{label}: thiếu {", ".join(missing)}; bỏ qua tin này')
             continue
-        url = rec['url'].strip()
+        url = canonical_url(rec['url'])
         if url in used_before:
             errors.append(f'{label}: tin đã dùng ngày {used_before[url]:%d/%m}; bỏ qua tin cũ')
             continue
@@ -124,6 +150,12 @@ def approved_stories(records, day, freshness=None):
         if published and published < cutoff:
             errors.append(f'{label}: đăng lúc {published:%H:%M %d/%m}, trước mốc {cutoff:%H:%M %d/%m}; bỏ qua tin cũ')
             continue
+        key = event_key(rec)
+        repeat = next((where for where, other in recent_events if same_event(key, other)), None)
+        if repeat:
+            errors.append(f'{label}: trùng sự kiện với {repeat} (cùng số liệu, tiêu đề gần giống); bỏ qua')
+            continue
+        recent_events.append((f'dòng {n}', key))
         for col, limit in LIMITS.items():
             if len(rec.get(col, '')) > limit:
                 warnings.append(f'{label}: "{col}" dài {len(rec[col])} ký tự (nên ≤ {limit}), có thể tràn khung')

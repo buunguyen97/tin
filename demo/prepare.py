@@ -111,6 +111,7 @@ async def prepare(workdir,legacy,voice,model,force):
   if audio_file.exists() and not force:
    try:
     audio_duration(audio_file); cached=True
+    os.utime(audio_file)  # auto_render.py keeps recently used cache files
    except (ValueError, EOFError, wave.Error):
     pass
   if not cached:

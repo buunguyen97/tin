@@ -10,7 +10,7 @@ import argparse, json, os, shutil, subprocess, sys, time
 from datetime import date as Date
 from pathlib import Path
 
-from edition import VOICES, WORK
+from edition import BUSY, VOICES, WORK, pipeline_lock
 
 demo = Path(__file__).resolve().parent
 project = demo.parent
@@ -28,6 +28,25 @@ def vieneu_python():
 
 def day_output(day):
     return project / 'output' / 'daily' / day
+
+
+def remove_outputs(out_dir, pid, frames_only=False):
+    """Delete a video's files (or only its QA frames, whose count follows the number of stories)."""
+    names = [] if frames_only else [f'{pid}.mp4', f'{pid}-preview.png', f'{pid}-nguon.md',
+                                    f'{pid}-verification.txt', f'{pid}-contact-sheet.jpg']
+    for f in [out_dir / n for n in names] + list(out_dir.glob(f'{pid}-frame-*.jpg')):
+        f.unlink(missing_ok=True)
+
+
+def remove_stale_videos(day, out_dir):
+    """After re-planning, a video whose programme no longer has enough stories must not linger."""
+    if not out_dir.exists():
+        return
+    ready = {p['id'] for p in json.loads((WORK / day / 'plan.json').read_text())['programmes'] if p['status'] == 'ready'}
+    for video in out_dir.glob('*.mp4'):
+        if video.stem not in ready:
+            print(f'Xoá video cũ không còn trong kế hoạch: {video.name}', flush=True)
+            remove_outputs(out_dir, video.stem)
 
 
 def run(cmd):
@@ -48,6 +67,14 @@ def ready_programmes(day, only):
 
 
 def main(argv=None):
+    with pipeline_lock() as acquired:
+        if not acquired:
+            print('Đang có một lượt tạo video khác chạy (Studio hoặc tự động); thử lại sau.', flush=True)
+            return BUSY
+        return _main(argv)
+
+
+def _main(argv=None):
     config_file = Path(os.environ.get('DIEMTIN_CONFIG', demo / 'config.json'))
     config = json.loads(config_file.read_text()) if config_file.exists() else {}
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -71,7 +98,11 @@ def main(argv=None):
         try:
             if step == 'sheet':
                 # Re-planning one programme would delete the others' work folders, so it is all or nothing.
-                run([py, demo / 'sheet_to_news.py', '--date', args.date] + (['--csv', args.csv] if args.csv else []))
+                try:
+                    run([py, demo / 'sheet_to_news.py', '--date', args.date] + (['--csv', args.csv] if args.csv else []))
+                finally:  # also when no programme has enough stories any more
+                    if (WORK / args.date / 'plan.json').exists():
+                        remove_stale_videos(args.date, out_dir)
                 continue
             progs = ready_programmes(args.date, only)
             dirs = [WORK / args.date / p['id'] for p in progs]
@@ -93,6 +124,7 @@ def main(argv=None):
                 for d in dirs:
                     video = out_dir / f'{d.name}.mp4'
                     if video.exists():
+                        remove_outputs(out_dir, d.name, frames_only=True)
                         run([py, demo / 'verify.py', video, d / 'props-vieneu.json'])
                     else:
                         print(f'CẢNH BÁO: chưa có video {video.name}', flush=True)

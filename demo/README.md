@@ -45,7 +45,7 @@ Routine Claude ghi tin thẳng ở trạng thái "Đã duyệt". Trên máy Mac,
 sh demo/launchd/install.sh            # gỡ: sh demo/launchd/install.sh --uninstall
 ```
 
-Tác vụ chạy `demo/auto_render.py` mỗi 10 phút trong khung `auto_render.window` (mặc định 7:00–12:00). Script chỉ render khi tin đã duyệt của hôm nay thay đổi so với lần trước, rồi hiện thông báo macOS. Nhật ký ở `output/auto-render.log`. Máy phải bật và không ngủ trong khung giờ đó. Chạy tay ngoài khung giờ: `.venv-demo/bin/python demo/auto_render.py --force`.
+Tác vụ chạy `demo/auto_render.py` mỗi 10 phút trong khung `auto_render.window` (mặc định 7:00–12:00). Script chỉ render khi tin đã duyệt của hôm nay thay đổi so với lần trước, rồi hiện thông báo macOS (kèm số tin bị loại). Nếu render lỗi, script thử lại tối đa `auto_render.max_attempts` lần (mặc định 2) rồi chờ tới khi Sheet thay đổi. Nếu tới giờ cuối của khung mà Sheet vẫn chưa có tin hợp lệ, máy báo một lần. Sau mỗi lần render xong, máy xoá video và thư mục làm việc cũ hơn `retention_days` ngày (mặc định 14), cùng ảnh và giọng đọc cache lâu không dùng. Studio và tác vụ tự động dùng chung một khoá, nên không bao giờ chạy chồng nhau. Nhật ký ở `output/auto-render.log`. Máy phải bật và không ngủ trong khung giờ đó. Chạy tay ngoài khung giờ: `.venv-demo/bin/python demo/auto_render.py --force`.
 
 ### Tùy chỉnh trong `demo/config.json`
 
@@ -67,7 +67,7 @@ Thêm ngành: thêm một mục vào `programmes`, thêm tên ngành vào dropdo
 ### Kết nối Google Sheet
 
 1. Tạo Sheet và đặt tên tab là `Tin`. Import `demo/sheet-template.csv` bằng **Tệp → Nhập → Tải lên → Thay thế trang tính hiện tại**, và **bỏ chọn** “Chuyển đổi văn bản thành số, ngày tháng và công thức” để giữ nguyên `129,3%` và `25.10`. File mẫu có 5 tin ngày 27/10/2026, chia thành 3 video.
-2. Đặt định dạng cột **Số liệu** là Văn bản thuần túy. Thêm dropdown cho **Trạng thái** (Nháp / Đã duyệt / Bỏ) và **Ngành** (9 ngành trong config). Đổi cột **Hot** thành ô tick (Chèn → Hộp đánh dấu).
+2. Đặt định dạng cột **Số liệu** là Văn bản thuần túy. Thêm dropdown cho **Trạng thái** (Nháp / Đã duyệt / Bỏ) và **Ngành** (9 ngành trong config). Đổi cột **Hot** thành ô tick (Chèn → Hộp đánh dấu). Tab mặc định chỉ có 1000 dòng (khoảng một tháng tin), nên thêm dòng ở cuối trang tính (ví dụ lên 10000); routine cũng tự thêm dòng khi sắp hết.
 3. Chép `demo/config.example.json` thành `demo/config.json` và điền `sheet_id`, tức đoạn giữa `/d/` và `/edit` trong link Sheet.
 4. Chọn một trong hai cách để repo đọc được Sheet:
    - **Đơn giản:** Share → “Bất kỳ ai có đường liên kết đều xem được”. Điền `sheet_gid` là số sau `#gid=` của tab `Tin`.
@@ -75,6 +75,8 @@ Thêm ngành: thêm một mục vào `programmes`, thêm tên ngành vào dropdo
 
 `sheet_to_news.py` chỉ lấy các dòng **Đã duyệt** của đúng ngày đã chọn.
 - Dòng thiếu thông tin bắt buộc: bỏ riêng dòng đó và báo lỗi, các tin khác vẫn được làm.
+- Tin cũ hoặc trùng: bỏ dòng có thời gian đăng trước mốc `freshness`, dòng có URL đã dùng ở ngày trước hoặc trùng URL trong ngày (URL được chuẩn hoá: bỏ `http/https`, `www.`, `/` cuối, `utm_*`...), và dòng trùng sự kiện với tin trong 2 ngày gần nhất (cùng số liệu, đơn vị và tiêu đề gần giống).
+- Video của ngành không còn đủ tin sau khi đọc lại Sheet bị xoá khỏi `output/daily/<ngày>/`.
 - Chữ quá dài so với khung thẻ, hoặc kịch bản còn chữ số: chỉ hiện cảnh báo.
 
 ### Bản đơn lẻ cũ (demo/news.json)
