@@ -1,4 +1,4 @@
-import argparse, asyncio, base64, functools, hashlib, json, math, html, shutil, subprocess, time, wave, os
+import argparse, asyncio, base64, functools, hashlib, json, math, html, random, shutil, subprocess, time, wave, os
 from pathlib import Path
 from tts_audio import audio_duration, cache_path
 from datetime import date as Date
@@ -16,9 +16,12 @@ SAFE={'top':160,'bottom':1440,'left':80,'right':920}
 # pick its own list with "layouts"). Windowed layouts show the photo through a hole in the overlay:
 # x, y, width, height, corner radius. Full-bleed ones put it across the top, fading to black
 # (height, fade start, fade length).
-LAYOUTS=['goc','anh-tran-tren','anh-tran-vien','the-kem']
+LAYOUTS=['goc','anh-tran-tren','anh-tran-vien','the-kem','phu-de']
 WINDOWS={'goc':(44,170,992,530,36),'the-kem':(67,180,946,440,26)}
 BLEEDS={'anh-tran-tren':dict(height=820,fade=(440,360),left=True),'anh-tran-vien':dict(height=1160,fade=(460,580),left=False)}
+# 'phu-de': the photo in a band between black bars, the headline as an outlined subtitle on it.
+BAND=(300,1620)
+PHOTO_ONLY=set(BLEEDS)|{'phu-de'}  # layouts that fall back to 'goc' for a story without a photo
 CREAM='#FFF8E6'
 FIGURE_WORDS={'tỷ','triệu','nghìn','ngàn','USD','đồng','%','người','tấn'}  # highlighted with the number in a headline
 def url(path): return f'{BASE}/{Path(path).resolve().relative_to(root).as_posix()}'
@@ -30,6 +33,15 @@ FONT_FILES=[('Regular',400,'normal'),('Bold',700,'normal'),('ExtraBold',800,'nor
 def font_style():
  faces=''.join(f"@font-face{{font-family:'Be Vietnam Pro';font-weight:{weight};font-style:{style};src:url(data:font/ttf;base64,{base64.b64encode((root/'fonts'/f'BeVietnamPro-{name}.ttf').read_bytes()).decode()}) format('truetype')}}" for name,weight,style in FONT_FILES)
  return f'<style>{faces}</style>'
+# Barlow Condensed (OFL, demo/fonts): the narrow subtitle face of 'phu-de', embedded only there.
+CONDENSED="'Barlow Condensed', sans-serif"
+@functools.cache
+def condensed_style():
+ faces=''.join(f"@font-face{{font-family:'Barlow Condensed';font-weight:{weight};src:url(data:font/ttf;base64,{base64.b64encode((root/'fonts'/f'BarlowCondensed-{name}.ttf').read_bytes()).decode()}) format('truetype')}}" for name,weight in [('SemiBold',600),('Bold',700)])
+ return f'<style>{faces}</style>'
+@functools.cache
+def _condensed(size,weight):
+ return ImageFont.truetype(str(root/'fonts'/f'BarlowCondensed-{ {600:"SemiBold",700:"Bold"}[weight]}.ttf'),size)
 def text(x,y,value,size=40,color='#F6F8FC',weight=400,anchor='start',extra=''):
  return f'<text x="{x}" y="{y}" fill="{color}" font-family="{FAMILY}" font-size="{size}" font-weight="{weight}" text-anchor="{anchor}"{extra}>{html.escape(value)}</text>'
 def rounded(x,y,w,h,r):
@@ -57,6 +69,10 @@ def background(item,photo,out,layout='goc'):
  the window, black elsewhere. Full-bleed layouts: the photo across the top, faded into black.
  Images stay still (cameraMovement "none"), so the photo needs no margin."""
  bg=Image.new('RGB',(W,H),INK)
+ if layout=='phu-de':
+  top,bottom=BAND
+  bg.paste(ImageOps.fit(Image.open(photo).convert('RGB'),(W,bottom-top),Image.LANCZOS),(0,top))
+  bg.save(out,quality=90); return out
  if layout in BLEEDS:
   b=BLEEDS[layout]; h=b['height']
   bg.paste(ImageOps.fit(Image.open(photo).convert('RGB'),(W,h),Image.LANCZOS,centering=(0 if b['left'] else .5,.5)),(0,0))
@@ -170,7 +186,25 @@ def _card_cream(item,size):
  for line,ds in details: s.append(text(cx+34,yy+ascent(ds,700),line,ds,INK,700)); yy+=54
  src,end=source_line(item,left,bottom+40)
  return s+src,end
-CARDS={'goc':(_card_goc,68),'anh-tran-tren':(_card_photo_top,80),'anh-tran-vien':(_card_photo_bleed,72),'the-kem':(_card_cream,80)}
+def _wrap_condensed(value,width,size):
+ """`value` in lines of at most `width` px of Barlow Condensed Bold at `size`."""
+ lines=[]; line=''
+ for w in value.split():
+  if line and _condensed(size,700).getlength(line+' '+w)>width: lines.append(line); line=w
+  else: line=(line+' '+w).strip()
+ return lines+[line]
+def _card_subtitle(item,size):
+ """Photo between black bars, the headline in white condensed type with a black outline like a
+ burned-in subtitle, and a small source line under it, right-aligned."""
+ left,right=56,SAFE['right']; width=right-left  # condensed lines run wider than the other cards', as in the subtitle look
+ while len(lines:=_wrap_condensed(' '.join(item['title']),width,size))>3: size-=2
+ outline=f'font-family="{CONDENSED}" font-weight="700" fill="#FFFFFF" stroke="#000000" stroke-linejoin="round" paint-order="stroke"'
+ lh=round(size*1.22); y=1220-(len(lines)-1)*lh; s=[]
+ for line in lines: s.append(f'<text x="{left}" y="{y}" font-size="{size}" stroke-width="{round(size*.18)}" {outline}>{html.escape(line)}</text>'); y+=lh
+ name=item['source'].split(' • ')[0]; end=y-lh+135
+ s.append(f'<text x="{right-100}" y="{end}" font-size="36" stroke-width="7" text-anchor="end" {outline}>Nguồn: {html.escape(name)}</text>')
+ return s,end
+CARDS={'goc':(_card_goc,68),'anh-tran-tren':(_card_photo_top,80),'anh-tran-vien':(_card_photo_bleed,72),'the-kem':(_card_cream,80),'phu-de':(_card_subtitle,56)}
 def card(edition,item,i,layout='goc'):
  """Overlay drawn by the player above the still background, in one of LAYOUTS. Every text stays in
  TikTok's safe area (SAFE): clear of the tabs on top, the caption below and the button rail; a
@@ -182,10 +216,17 @@ def card(edition,item,i,layout='goc'):
  else: print(f'  CẢNH BÁO: thẻ "{" ".join(item["title"])}" chạm vùng bị TikTok che phía dưới',flush=True)
  head=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">',font_style(),
        '<defs><linearGradient id="box"><stop stop-color="#161616"/><stop offset="1" stop-color="#2E2710"/></linearGradient></defs>']
+ if layout=='phu-de': head.append(condensed_style())
  if layout in WINDOWS:
   x,y,w,h,r=WINDOWS[layout]; window=rounded(x,y,w,h,r)
   head+=[f'<path d="M0 0H{W}V{H}H0Z{window}" fill="{INK}" fill-rule="evenodd"/>',f'<path d="{window}" fill="none" stroke="{YELLOW}" stroke-width="{6 if layout=="goc" else 5}"/>']
  return ''.join(head+s+['</svg>'])
+def shuffled_layouts(edition):
+ """The layouts in a random order, one after another so a video doesn't repeat one look. Seeded by
+ the video's date and title: re-rendering the same video keeps its layouts."""
+ layouts=list(edition.get('layouts') or LAYOUTS)
+ random.Random(f"{edition['date']}|{edition.get('title','')}").shuffle(layouts)
+ return layouts
 def spoken(edition,i):
  """What the voice reads for story i; the outro closes the last one."""
  parts=[edition['stories'][i]['script'],edition.get('outro','') if i==len(edition['stories'])-1 else '']
@@ -301,12 +342,13 @@ async def prepare(workdir,legacy,voice,model,force):
   overlay=out_dir/'intro.svg'; overlay.write_text(intro_card(edition))
   manuscripts.append(manuscript(0,edition['title'],edition.get('brand',''),edition['intro'],audio_file,duration,frame,overlay))
   total+=duration; print(f'  intro: {duration}s{" (giọng có sẵn)" if cached else ""}',flush=True)
+ layouts=shuffled_layouts(edition)
  for i,item in enumerate(news):
   script=spoken(edition,i)
   audio_file,duration,cached=await record(script,i+1)
   entry=photos.get(str(i+1)) if item.get('image') is not False else None
-  layouts=edition.get('layouts') or LAYOUTS; layout=layouts[i%len(layouts)]
-  if layout in BLEEDS and not entry: layout='goc'  # a full-bleed layout without a photo would leave the top half empty
+  layout=layouts[i%len(layouts)]
+  if layout in PHOTO_ONLY and not entry: layout='goc'  # a photo layout without a photo would leave the frame empty
   frame=background(item,assets/entry['file'] if entry else None,out_dir/f'bg-{i+1}-frame.jpg',layout)
   overlay=out_dir/f'{i+1}.svg'; overlay.write_text(card(edition,item,i,layout))
   manuscripts.append(manuscript(i+1,' '.join(item['title']),item['source'],script,audio_file,duration,frame,overlay))
