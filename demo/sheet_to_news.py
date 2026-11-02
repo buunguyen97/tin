@@ -220,6 +220,8 @@ def plan_programmes(stories, programmes, day, config=None):
                    'stories': edition_stories}
         if prog.get('voice'):  # otherwise the voice chosen in Studio / --voice
             edition['voice'] = prog['voice']
+        if prog.get('layouts') or config.get('layouts'):  # story card layouts, used in turn
+            edition['layouts'] = prog.get('layouts') or config['layouts']
         if prog.get('intro_image') or config.get('intro_image'):
             edition['intro_image'] = prog.get('intro_image') or config['intro_image']
         plans.append((prog, edition, ''))

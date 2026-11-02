@@ -12,7 +12,15 @@ INK,YELLOW='#0B0B0B','#FFD21F'
 # TikTok covers the top tabs, the caption and music below, and the button rail on the right;
 # text stays inside this box (commonly used safe-zone margins for 1080x1920).
 SAFE={'top':160,'bottom':1440,'left':80,'right':920}
-FRAME=(44,170,992,530,36)  # photo window on the story card: x, y, width, height, corner radius
+# Story card layouts, used in turn so a video doesn't repeat one look (the programme config can
+# pick its own list with "layouts"). Windowed layouts show the photo through a hole in the overlay:
+# x, y, width, height, corner radius. Full-bleed ones put it across the top, fading to black
+# (height, fade start, fade length).
+LAYOUTS=['goc','anh-tran-tren','anh-tran-vien','the-kem']
+WINDOWS={'goc':(44,170,992,530,36),'the-kem':(67,180,946,440,26)}
+BLEEDS={'anh-tran-tren':dict(height=820,fade=(440,360),left=True),'anh-tran-vien':dict(height=1160,fade=(460,580),left=False)}
+CREAM='#FFF8E6'
+FIGURE_WORDS={'tỷ','triệu','nghìn','ngàn','USD','đồng','%','người','tấn'}  # highlighted with the number in a headline
 def url(path): return f'{BASE}/{Path(path).resolve().relative_to(root).as_posix()}'
 # Be Vietnam Pro (OFL, demo/fonts) is embedded in every card: the player draws cards as <img>,
 # which cannot load outside fonts, and system fonts differ between machines.
@@ -44,11 +52,19 @@ def wrap(value,limit,size=None,weight=400):
   if line and too_long(line+' '+w): lines.append(line); line=w
   else: line=(line+' '+w).strip()
  return lines+[line]
-def background(item,photo,out):
- """1080x1920 JPEG: the landscape photo exactly behind the card's photo window, black elsewhere.
- Images stay still (cameraMovement "none"), so the photo needs no margin around the window."""
- x,y,w,h,_=FRAME; band=(x,y,x+w,y+h)
+def background(item,photo,out,layout='goc'):
+ """1080x1920 JPEG behind the card overlay. Windowed layouts: the landscape photo exactly behind
+ the window, black elsewhere. Full-bleed layouts: the photo across the top, faded into black.
+ Images stay still (cameraMovement "none"), so the photo needs no margin."""
  bg=Image.new('RGB',(W,H),INK)
+ if layout in BLEEDS:
+  b=BLEEDS[layout]; h=b['height']
+  bg.paste(ImageOps.fit(Image.open(photo).convert('RGB'),(W,h),Image.LANCZOS,centering=(0 if b['left'] else .5,.5)),(0,0))
+  start,length=b['fade']
+  fade=Image.new('L',(1,h)); fade.putdata([round(255*min(1,max(0,(j-start)/length))**1.3) for j in range(h)])
+  bg.paste(Image.new('RGB',(W,h),INK),(0,0),fade.resize((W,h)))
+  bg.save(out,quality=90); return out
+ x,y,w,h,_=WINDOWS[layout]; band=(x,y,x+w,y+h)
  if photo:
   bg.paste(ImageOps.fit(Image.open(photo).convert('RGB'),(band[2]-band[0],band[3]-band[1]),Image.LANCZOS),band[:2])
  else:
@@ -57,44 +73,119 @@ def background(item,photo,out):
   glow=Image.new('L',(W,H),0); ImageDraw.Draw(glow).ellipse((x+150,y+80,x+w-150,y+h-80),fill=120)
   bg=Image.composite(Image.new('RGB',(W,H),YELLOW),bg,glow.filter(ImageFilter.GaussianBlur(110)))
  bg.save(out,quality=90); return out
-def card(edition,item,i,credit):
- """Overlay drawn by the player above the still background: black page with a yellow-framed
- photo window, category tag, headline, figure box, details and source. Every text stays in
- TikTok's safe area (SAFE): clear of the tabs on top, the caption below and the button rail.
- Spare height above SAFE['bottom'] is shared between the blocks, so short stories don't leave a gap."""
- x,y,w,h,r=FRAME; window=rounded(x,y,w,h,r); left,right=SAFE['left'],SAFE['right']; width=right-left
- cat=item['category']; tw=round(text_width(cat,34,800,True)+56); tx,ty,th,sk=left-6,y+h+28,62,18
- lines=item['title']; size=min(fit(l,68,800,width) for l in lines); num=item['number']
+def ascent(size,weight):
+ """Baseline offset below the top of a line, so blocks can be placed by their top edge."""
+ return _font(size,weight,False).getmetrics()[0]
+def figure(num,unit,x,mid,ns,color,unit_color,us,unit_weight,unit_right,gap=36,bar=YELLOW):
+ """Big number, divider and unit (at most two lines), centred vertically on `mid`."""
+ dx=round(x+text_width(num,ns,800)+gap); ux=dx+38
+ for u in range(us,us-14,-2):
+  unit_lines=wrap(unit,unit_right-ux,u,unit_weight)
+  if len(unit_lines)<=2: break
+ s=[text(x,round(mid+ns*.36),num,ns,color,800)]
+ if bar: s.append(f'<rect x="{dx}" y="{mid-46}" width="5" height="92" rx="3" fill="{bar}"/>')
+ for j,line in enumerate(unit_lines): s.append(text(ux,round(mid+u*.36+(j-(len(unit_lines)-1)/2)*u*1.25),line,u,unit_color,unit_weight))
+ return s
+def source_line(item,x,y,color='#FFFFFF'):
+ """Tapered yellow rule and 'Nguồn: <outlet>'; returns the parts and the last baseline."""
+ name=item['source'].split(' • ')[0]
+ return [f'<path d="M{x} {y-3}L{x+320} {y}L{x} {y+3}Z" fill="{YELLOW}"/>',
+         f'<text x="{x}" y="{y+56}" fill="{color}" font-family="{FAMILY}" font-size="30">Nguồn: <tspan font-weight="700">{html.escape(name)}</tspan></text>'],y+56
+def headline(item,size,width,hot=False):
+ """The two sheet headline lines joined and re-wrapped to `width` px (at most three lines, shrinking
+ the font if needed). With `hot`, the figure in it (e.g. "6 tỷ USD") is set in yellow."""
+ while len(lines:=wrap(' '.join(item['title']),width,size,800))>3: size-=2
+ words=' '.join(lines).split(); marked=set()
+ if hot:
+  first=next((k for k,w in enumerate(words) if any(c.isdigit() for c in w)),None)
+  if first is not None:
+   marked.add(first); k=first+1
+   while k<len(words) and words[k].strip(',.') in FIGURE_WORDS: marked.add(k); k+=1
+ out=[]; k=0
+ for line in lines:
+  parts=[]
+  for w in line.split():
+   parts.append(f'<tspan fill="{YELLOW}">{html.escape(w)}</tspan>' if k in marked else html.escape(w)); k+=1
+  out.append(' '.join(parts))
+ return out,size
+def _card_goc(item,size):
+ """Black page, yellow-framed photo window, headline, figure box, details, source. Spare height
+ above SAFE['bottom'] is shared between the blocks, so short stories don't leave a gap."""
+ x,y,w,h,r=WINDOWS['goc']; left,right=SAFE['left'],SAFE['right']; width=right-left
+ lines=item['title']; size=min(fit(l,size,800,width) for l in lines)
  def body(gap):
-  s=[f'<path d="M{tx+sk} {ty}H{tx+sk+tw}L{tx+tw} {ty+th}H{tx}Z" fill="{YELLOW}"/>',  # slanted tag + stripe
-     f'<path d="M{tx+tw+12+sk} {ty}h14L{tx+tw+26} {ty+th}h-14Z" fill="{YELLOW}"/>',
-     text(round(tx+sk/2+tw/2),ty+44,cat,34,INK,800,'middle',' font-style="italic"')]
-  if credit and tx+tw+60+text_width(f'Ảnh: {credit}',20,400)<right: s.append(text(right,ty+40,f'Ảnh: {credit}',20,'#8A8A8A',anchor='end'))
-  cy=ty+th+4+gap
+  s=[]; cy=y+h+10+gap
   for line in lines: cy+=round(size*1.18); s.append(text(left,cy,line,size,'#FFFFFF',800))
-  # Figure box: big yellow number | unit, wrapped to at most two lines.
-  bx,by,bw,bh=left-14,cy+36+gap,width+14,160; mid=by+bh//2
-  ns=fit(num,130,800,330); dx=round(bx+44+text_width(num,ns,800)+36); ux=dx+38
-  for us in range(40,26,-2):
-   unit=wrap(item['unit'],bx+bw-30-ux,us)
-   if len(unit)<=2: break
-  s+=[f'<rect x="{bx}" y="{by}" width="{bw}" height="{bh}" rx="26" fill="url(#box)" stroke="{YELLOW}" stroke-width="5"/>',
-      text(bx+44,round(mid+ns*.36),num,ns,YELLOW,800),f'<rect x="{dx}" y="{mid-46}" width="5" height="92" rx="3" fill="{YELLOW}"/>']
-  for j,line in enumerate(unit): s.append(text(ux,round(mid+us*.36+(j-(len(unit)-1)/2)*us*1.25),line,us,'#FFFFFF'))
+  bx,by,bw,bh=left-14,cy+36+gap,width+14,160
+  s.append(f'<rect x="{bx}" y="{by}" width="{bw}" height="{bh}" rx="26" fill="url(#box)" stroke="{YELLOW}" stroke-width="5"/>')
+  s+=figure(item['number'],item['unit'],bx+44,by+bh//2,fit(item['number'],130,800,330),YELLOW,'#FFFFFF',40,400,bx+bw-30)
   cy=by+bh+6+gap
   for line in item['detail']: cy+=56; s.append(text(left,cy,line,fit(line,38,700,width),'#FFFFFF',700))
-  if item['note']: cy+=6
-  for line in wrap(item['note'],width,24)[:2]: cy+=34; s.append(text(left,cy,line,24,'#9A9A9A'))
-  ly=cy+42+gap; source=item['source'].split(' • ')[0]
-  s+=[f'<path d="M{left} {ly-3}L{left+320} {ly}L{left} {ly+3}Z" fill="{YELLOW}"/>',
-      f'<text x="{left}" y="{ly+56}" fill="#FFFFFF" font-family="{FAMILY}" font-size="30">Nguồn: <tspan font-weight="700">{html.escape(source)}</tspan></text>']
-  return s,ly+56
+  src,end=source_line(item,left,cy+42+gap)
+  return s+src,end
  s,end=body(0)
  if end<SAFE['bottom']-16: s,end=body(min(40,(SAFE['bottom']-16-end)//4))
- else: print(f'  CẢNH BÁO: thẻ "{" ".join(lines)}" chạm vùng bị TikTok che phía dưới',flush=True)
- return ''.join([f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">',font_style(),
-    '<defs><linearGradient id="box"><stop stop-color="#161616"/><stop offset="1" stop-color="#2E2710"/></linearGradient></defs>',
-    f'<path d="M0 0H{W}V{H}H0Z{window}" fill="{INK}" fill-rule="evenodd"/>',f'<path d="{window}" fill="none" stroke="{YELLOW}" stroke-width="6"/>',*s,'</svg>'])
+ return s,end
+def _card_photo_top(item,size):
+ """Photo across the top fading to black, three-line headline over the fade, outlined figure box."""
+ left,right=SAFE['left'],SAFE['right']; width=right-left
+ lines,size=headline(item,size,800); y=600; s=[]
+ for line in lines: s.append(f'<text x="{left}" y="{y+ascent(size,800)}" fill="#FFFFFF" font-family="{FAMILY}" font-size="{size}" font-weight="800">{line}</text>'); y+=round(size*1.17)
+ bx,by,bw,bh=left-14,y+26,width+14,168
+ s.append(f'<rect x="{bx}" y="{by}" width="{bw}" height="{bh}" rx="24" fill="#111111" stroke="{YELLOW}" stroke-width="5"/>')
+ s+=figure(item['number'],item['unit'],bx+46,by+bh//2,fit(item['number'],150,800,260),YELLOW,'#FFFFFF',38,400,bx+bw-24,gap=40)
+ y=by+bh+30
+ for line in item['detail']: ds=fit(line,38,700,width); s.append(text(left,y+ascent(ds,700),line,ds,'#FFFFFF',700)); y+=56
+ src,end=source_line(item,left,y+50)
+ return s+src,end
+def _card_photo_bleed(item,size):
+ """Edge-to-edge photo fading to black, headline with a yellow bar on the photo, yellow figure pill,
+ bulleted details."""
+ left,right=SAFE['left'],SAFE['right']; width=right-left
+ lines=item['title']; size=min(fit(l,size,800,width-30) for l in lines); lh=round(size*1.2)
+ y=930-len(lines)*lh-10
+ s=[f'<rect x="{left}" y="{y+8}" width="10" height="{len(lines)*lh-14}" fill="{YELLOW}"/>']
+ for line in lines: s.append(text(left+30,y+ascent(size,800),line,size,'#FFFFFF',800)); y+=lh
+ y+=40; ns=fit(item['number'],110,800,260); nw=text_width(item['number'],ns,800)
+ s.append(f'<rect x="{left}" y="{y}" width="{round(nw+60)}" height="150" rx="24" fill="{YELLOW}"/>')
+ s+=figure(item['number'],item['unit'],left+30,y+75,ns,INK,'#FFFFFF',38,700,right,gap=28,bar=None)
+ y+=200
+ for line in item['detail']:
+  ds=fit(line,38,700,width-40)
+  s+=[f'<rect x="{left}" y="{round(y+ds*.45)}" width="16" height="16" rx="4" fill="{YELLOW}"/>',text(left+36,y+ascent(ds,700),line,ds,'#FFFFFF',700)]; y+=60
+ src,end=source_line(item,left,y+40)
+ return s+src,end
+def _card_cream(item,size):
+ """Yellow-framed photo, headline with the figure in yellow, cream card holding figure and details."""
+ x,y,w,h,_=WINDOWS['the-kem']; left,right=SAFE['left'],SAFE['right']; width=right-left
+ lines,size=headline(item,size,width,hot=True); y+=h+30; s=[]
+ for line in lines: s.append(f'<text x="{left}" y="{y+ascent(size,800)}" fill="#FFFFFF" font-family="{FAMILY}" font-size="{size}" font-weight="800">{line}</text>'); y+=round(size*1.17)
+ cx,cw,top=left-14,width+14,y+20; mid=top+95; dy=mid+98
+ details=[(line,fit(line,38,700,cw-70)) for line in item['detail']]
+ bottom=dy+22+len(details)*54+20
+ s.append(f'<rect x="{cx}" y="{top}" width="{cw}" height="{bottom-top}" rx="26" fill="{CREAM}" stroke="{YELLOW}" stroke-width="5"/>')
+ s+=figure(item['number'],item['unit'],cx+40,mid,fit(item['number'],150,800,280),INK,INK,34,700,cx+cw-24,gap=44)
+ s.append(f'<rect x="{cx+34}" y="{dy}" width="{cw-68}" height="3" fill="{YELLOW}"/>')
+ yy=dy+22
+ for line,ds in details: s.append(text(cx+34,yy+ascent(ds,700),line,ds,INK,700)); yy+=54
+ src,end=source_line(item,left,bottom+40)
+ return s+src,end
+CARDS={'goc':(_card_goc,68),'anh-tran-tren':(_card_photo_top,80),'anh-tran-vien':(_card_photo_bleed,72),'the-kem':(_card_cream,80)}
+def card(edition,item,i,layout='goc'):
+ """Overlay drawn by the player above the still background, in one of LAYOUTS. Every text stays in
+ TikTok's safe area (SAFE): clear of the tabs on top, the caption below and the button rail; a
+ story too long for it gets a smaller headline."""
+ build,size=CARDS[layout]
+ for size in range(size,size-20,-4):
+  s,end=build(item,size)
+  if end<=SAFE['bottom']-16: break
+ else: print(f'  CẢNH BÁO: thẻ "{" ".join(item["title"])}" chạm vùng bị TikTok che phía dưới',flush=True)
+ head=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">',font_style(),
+       '<defs><linearGradient id="box"><stop stop-color="#161616"/><stop offset="1" stop-color="#2E2710"/></linearGradient></defs>']
+ if layout in WINDOWS:
+  x,y,w,h,r=WINDOWS[layout]; window=rounded(x,y,w,h,r)
+  head+=[f'<path d="M0 0H{W}V{H}H0Z{window}" fill="{INK}" fill-rule="evenodd"/>',f'<path d="{window}" fill="none" stroke="{YELLOW}" stroke-width="{6 if layout=="goc" else 5}"/>']
+ return ''.join(head+s+['</svg>'])
 def spoken(edition,i):
  """What the voice reads for story i; the outro closes the last one."""
  parts=[edition['stories'][i]['script'],edition.get('outro','') if i==len(edition['stories'])-1 else '']
@@ -214,9 +305,10 @@ async def prepare(workdir,legacy,voice,model,force):
   script=spoken(edition,i)
   audio_file,duration,cached=await record(script,i+1)
   entry=photos.get(str(i+1)) if item.get('image') is not False else None
-  frame=background(item,assets/entry['file'] if entry else None,out_dir/f'bg-{i+1}-frame.jpg')
-  credit=item.get('image_credit') or item['source'].split(' • ')[0] if entry else None
-  overlay=out_dir/f'{i+1}.svg'; overlay.write_text(card(edition,item,i,credit))
+  layouts=edition.get('layouts') or LAYOUTS; layout=layouts[i%len(layouts)]
+  if layout in BLEEDS and not entry: layout='goc'  # a full-bleed layout without a photo would leave the top half empty
+  frame=background(item,assets/entry['file'] if entry else None,out_dir/f'bg-{i+1}-frame.jpg',layout)
+  overlay=out_dir/f'{i+1}.svg'; overlay.write_text(card(edition,item,i,layout))
   manuscripts.append(manuscript(i+1,' '.join(item['title']),item['source'],script,audio_file,duration,frame,overlay))
   total+=duration; print(f'  {i+1}. {" ".join(item["title"])}: {duration}s{" (giọng có sẵn)" if cached else ""}',flush=True)
  props={'manuscripts':manuscripts,'width':1080,'height':1920,'voice':True,'backgroundMusic':False,'disabledLogo':True,'playerConfig':{'assetBaseUrl':BASE,'logo':'unused.svg','defaultCameraMovements':['none'],'styles':{'all':{'captions':{'container':'display:none;'},'progress':{'active':'display:none;','inactive':'display:none;'}}}}}

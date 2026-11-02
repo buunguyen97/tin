@@ -59,6 +59,7 @@ Tác vụ chạy `demo/auto_render.py` mỗi 10 phút trong khung `auto_render.w
   - `voice` (không bắt buộc): giọng riêng cho video đó, ví dụ `"voice": "Mai Anh"` cho video nổi bật.
 - `voice`: giọng mặc định. Có 25 giọng VieNeu, chọn được trong Studio.
 - `speed`: tốc độ đọc (mặc định 1.25; 1 là tốc độ gốc). Đổi tốc độ thì giọng được đọc lại.
+- `layouts`: bố cục thẻ tin, dùng lần lượt cho từng tin (mặc định `["goc", "anh-tran-tren", "anh-tran-vien", "the-kem"]`). Đặt ở cấp ngoài cùng cho mọi video, hoặc trong một chương trình chỉ cho video đó. Tin không có ảnh thì không dùng hai bố cục ảnh tràn mà chuyển về `goc`.
 - `brand`: dòng thương hiệu trên intro.
 - `outro`: câu đọc cuối video (để trống thì không có).
 - `intro_image`: ảnh nền intro dùng chung, đường dẫn tương đối từ `demo/`.
