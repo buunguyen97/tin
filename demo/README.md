@@ -2,7 +2,7 @@
 
 Tích hợp VieNeu vào pipeline demo của Videofy: kịch bản → giọng đọc → đo thời lượng → `ArticlesSeries` → MP4 dọc 1080×1920.
 
-- Mặc định: **VieNeu v3 Turbo, Hải Đăng (nam miền Bắc, phong cách tự nhiên)**.
+- Mặc định: **VieNeu v3 Turbo, giọng nhân bản Ngọc Huyền** (mẫu ở `demo/voices/`), đọc nhanh 1,25 lần.
 - Chạy local bằng ONNX CPU, fp32, 4 threads; không cần API key.
 - VieNeu 3.8.3, repo sibling `../VieNeu-TTS`, commit `04044e1b8f822f946bafb2c88b716459f4164152`.
 - Videofy Minimal commit `5652e70981b1f45df43d7e6c6f38793ed3a947ad`.
@@ -37,7 +37,7 @@ uv sync --project VieNeu-TTS --python 3.12
 
 1. Chép `demo/config.example.json` thành `demo/config.json`, rồi điền `sheet_id` và `sheet_gid` theo mục [Kết nối Google Sheet](#kết-nối-google-sheet).
 2. Chọn giọng bằng `voice` và tốc độ bằng `speed`. Các tuỳ chọn khác xem ở [Tùy chỉnh](#tùy-chỉnh-trong-democonfigjson).
-3. Giọng nhân bản (không bắt buộc): đặt một đoạn ghi âm sạch dài 3–8 giây vào `demo/voices/<Tên giọng>.wav`, rồi đặt `"voice": "<Tên giọng>"`. Thư mục `voices/` không được đưa lên git.
+3. Giọng nhân bản (không bắt buộc): đặt một đoạn ghi âm sạch dài 3–8 giây vào `demo/voices/<Tên giọng>.wav`, rồi đặt `"voice": "<Tên giọng>"`. Repo có sẵn hai giọng nhân bản: `Ngọc Huyền` (mặc định) và `Châu Thảo`.
 
 ### 4. Làm video
 
