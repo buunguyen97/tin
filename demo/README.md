@@ -70,7 +70,7 @@ Chạy test:
 - **`Không thấy Python của VieNeu`**: chưa chạy `uv sync --project VieNeu-TTS`, hoặc VieNeu đang ở chỗ khác. Khi đó đặt `$env:VIENEU_PYTHON` thành đường dẫn tới `python.exe` của VieNeu.
 - **Render báo cổng 8765 đang bận**: một lần render trước chưa thoát. Đóng tiến trình `node` đó rồi chạy lại.
 - **“Đang có một lượt tạo video khác chạy”**: Studio hoặc một lệnh khác đang render. Đợi lượt đó xong.
-- Tự render theo lịch (`auto_render.py` cài bằng launchd) hiện chỉ có cho macOS.
+- Tự render theo lịch: cài bằng `demo\windows\install.ps1` (Task Scheduler), xem mục "Tự làm video" bên dưới.
 
 ## Quy trình mỗi ngày
 
@@ -108,6 +108,14 @@ Routine Claude ghi tin thẳng ở trạng thái "Đã duyệt". Trên máy Mac,
 ```sh
 sh demo/launchd/install.sh            # gỡ: sh demo/launchd/install.sh --uninstall
 ```
+
+Trên Windows, mở PowerShell trong thư mục dự án và chạy (gỡ: thêm `-Uninstall`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File demo\windows\install.ps1
+```
+
+Lệnh này tạo tác vụ "TinTuc AutoRender" trong Task Scheduler. Tác vụ chạy ẩn, không mở cửa sổ nào, và báo kết quả bằng thông báo Windows. Nếu máy đang ngủ, tác vụ đánh thức máy, và chạy bù khi máy vừa bật lại.
 
 Tác vụ chạy `demo/auto_render.py` mỗi 10 phút trong khung `auto_render.window` (mặc định 7:00–12:00). Script chỉ render khi tin đã duyệt của hôm nay thay đổi so với lần trước, rồi hiện thông báo macOS (kèm số tin bị loại). Nếu render lỗi, script thử lại tối đa `auto_render.max_attempts` lần (mặc định 2) rồi chờ tới khi Sheet thay đổi. Nếu tới giờ cuối của khung mà Sheet vẫn chưa có tin hợp lệ, máy báo một lần. Sau mỗi lần render xong, máy xoá video và thư mục làm việc cũ hơn `retention_days` ngày (mặc định 14), cùng ảnh và giọng đọc cache lâu không dùng. Studio và tác vụ tự động dùng chung một khoá, nên không bao giờ chạy chồng nhau. Nhật ký ở `output/auto-render.log`. Máy phải bật và không ngủ trong khung giờ đó. Chạy tay ngoài khung giờ: `.venv-demo/bin/python demo/auto_render.py --force`.
 

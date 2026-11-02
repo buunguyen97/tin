@@ -1,17 +1,17 @@
 """Render today's videos automatically once the Google Sheet has approved stories.
 
-Meant to run every few minutes (launchd, see demo/launchd/). Each run:
+Meant to run every few minutes (launchd, see demo/launchd/; Task Scheduler, see demo/windows/). Each run:
   1. exits unless the local time is inside config "auto_render.window" (default 7:00–12:00)
   2. reads the sheet and fingerprints today's approved stories
   3. if the fingerprint differs from the last render, runs run_daily.py for today
      (a failing sheet is retried at most "auto_render.max_attempts" times, default 2)
-  4. posts a macOS notification with the result, or once near the end of the window if there is no news
+  4. posts a macOS or Windows notification with the result, or once near the end of the window if there is no news
   5. after a successful render, deletes videos, work folders and cached media older than "retention_days"
 
   .venv-demo/bin/python demo/auto_render.py            # one check, as launchd does
   .venv-demo/bin/python demo/auto_render.py --force    # ignore time window, fingerprint and attempts
 """
-import argparse, hashlib, json, re, shutil, subprocess, sys, time
+import argparse, hashlib, json, os, re, shutil, subprocess, sys, time
 from datetime import date as Date, datetime, timedelta
 from pathlib import Path
 
@@ -30,9 +30,27 @@ def log(*parts):
     print(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), *parts, flush=True)
 
 
+# Windows toast through PowerShell's own app id; title and message come in through the environment,
+# so no quoting of Vietnamese text is needed.
+TOAST = ("[Windows.UI.Notifications.ToastNotificationManager,Windows.UI.Notifications,ContentType=WindowsRuntime]|Out-Null;"
+         "$t=[Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02);"
+         "$x=$t.GetElementsByTagName('text');$x.Item(0).AppendChild($t.CreateTextNode($env:TOAST_TITLE))|Out-Null;"
+         "$x.Item(1).AppendChild($t.CreateTextNode($env:TOAST_MESSAGE))|Out-Null;"
+         "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
+         "'{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe')"
+         ".Show([Windows.UI.Notifications.ToastNotification]::new($t))")
+
+
 def notify(title, message):
-    script = f'display notification {json.dumps(message)} with title {json.dumps(title)}'
-    subprocess.run(['osascript', '-e', script], capture_output=True)
+    try:
+        if sys.platform == 'win32':
+            subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', TOAST], capture_output=True,
+                           env={**os.environ, 'TOAST_TITLE': title, 'TOAST_MESSAGE': message}, timeout=30)
+        elif sys.platform == 'darwin':
+            script = f'display notification {json.dumps(message)} with title {json.dumps(title)}'
+            subprocess.run(['osascript', '-e', script], capture_output=True)
+    except (OSError, subprocess.TimeoutExpired):  # a missed notification must not stop the render
+        pass
 
 
 def fingerprint(stories):
