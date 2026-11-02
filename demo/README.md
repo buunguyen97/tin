@@ -8,6 +8,70 @@ Tích hợp VieNeu vào pipeline demo của Videofy: kịch bản → giọng đ
 - Videofy Minimal commit `5652e70981b1f45df43d7e6c6f38793ed3a947ad`.
 - Tích hợp trong `demo/prepare.py`; chưa thêm provider vào giao diện CMS/FastAPI của upstream.
 
+## Chạy trên Windows
+
+Các lệnh dưới đây chạy trong PowerShell, từ thư mục gốc của dự án.
+
+### 1. Cài công cụ (một lần)
+
+- [Git](https://git-scm.com/download/win), [Node.js](https://nodejs.org) 20 trở lên, và [uv](https://docs.astral.sh/uv/getting-started/installation/) (uv tự tải Python 3.12). Không cần cài ffmpeg riêng: dự án dùng bản có sẵn trong gói `imageio-ffmpeg`.
+- Đặt dự án ở đường dẫn ngắn, ví dụ `C:\Users\<tên>\Documents\tin`. Windows giới hạn đường dẫn 260 ký tự, nên thư mục quá sâu sẽ làm `npm` và `uv` báo lỗi.
+
+### 2. Tải dự án và cài thư viện (một lần)
+
+```powershell
+git -c core.longpaths=true clone https://github.com/buunguyen97/tin.git
+cd tin
+git config core.longpaths true
+npm ci
+uv venv .venv-demo --python 3.12
+uv pip install --python .venv-demo -r demo/requirements-demo.txt
+git clone https://github.com/pnnbao97/VieNeu-TTS.git VieNeu-TTS
+git -C VieNeu-TTS checkout 04044e1b8f822f946bafb2c88b716459f4164152
+uv sync --project VieNeu-TTS --python 3.12
+```
+
+`VieNeu-TTS` nằm trong thư mục dự án và đã được `.gitignore` bỏ qua. Lần đọc giọng đầu tiên tải model khoảng 2 GB về `demo/.model-cache/hub`.
+
+### 3. Cấu hình
+
+1. Chép `demo/config.example.json` thành `demo/config.json`, rồi điền `sheet_id` và `sheet_gid` theo mục [Kết nối Google Sheet](#kết-nối-google-sheet).
+2. Chọn giọng bằng `voice` và tốc độ bằng `speed`. Các tuỳ chọn khác xem ở [Tùy chỉnh](#tùy-chỉnh-trong-democonfigjson).
+3. Giọng nhân bản (không bắt buộc): đặt một đoạn ghi âm sạch dài 3–8 giây vào `demo/voices/<Tên giọng>.wav`, rồi đặt `"voice": "<Tên giọng>"`. Thư mục `voices/` không được đưa lên git.
+
+### 4. Làm video
+
+Dùng giao diện Studio, rồi mở http://127.0.0.1:8790 và bấm “Tạo tất cả video”:
+
+```powershell
+.venv-demo\Scripts\python.exe demo\studio.py
+```
+
+Hoặc chạy bằng dòng lệnh:
+
+```powershell
+.venv-demo\Scripts\python.exe demo\run_daily.py                                      # hôm nay, mọi video
+.venv-demo\Scripts\python.exe demo\run_daily.py --date 2026-11-02 --programmes tong-hop
+.venv-demo\Scripts\python.exe demo\run_daily.py --steps prepare,render,verify --programmes tong-hop
+```
+
+Video nằm ở `output\daily\<ngày>\`. Bước `prepare` chỉ đọc lại những câu mới; giọng đã đọc trước đó lấy từ cache nên chạy lại rất nhanh.
+
+Chạy test:
+
+```powershell
+.venv-demo\Scripts\python.exe -X utf8 -m unittest discover -s demo -p "test_*.py"
+```
+
+### Lỗi thường gặp
+
+- **`Filename too long`**: thiếu `core.longpaths`, hoặc thư mục dự án nằm quá sâu. Chuyển dự án ra đường dẫn ngắn hơn.
+- **Lỗi mã hoá ký tự (`UnicodeDecodeError`, `cp1252`)**: các script tự chuyển sang UTF-8. Nếu chạy riêng `verify.py` mà vẫn gặp lỗi, đặt `$env:PYTHONUTF8 = '1'` trước khi chạy.
+- **`Không thấy Python của VieNeu`**: chưa chạy `uv sync --project VieNeu-TTS`, hoặc VieNeu đang ở chỗ khác. Khi đó đặt `$env:VIENEU_PYTHON` thành đường dẫn tới `python.exe` của VieNeu.
+- **Render báo cổng 8765 đang bận**: một lần render trước chưa thoát. Đóng tiến trình `node` đó rồi chạy lại.
+- **“Đang có một lượt tạo video khác chạy”**: Studio hoặc một lệnh khác đang render. Đợi lượt đó xong.
+- Tự render theo lịch (`auto_render.py` cài bằng launchd) hiện chỉ có cho macOS.
+
 ## Quy trình mỗi ngày
 
 1. **7:00 – Claude tổng hợp tin** vào tab `Tin` của Google Sheet, trạng thái `Nháp`. Mỗi tin ghi kèm Ngành, đánh dấu Hot nếu là tin nổi bật trong ngày. Prompt và đặc tả cột nằm ở [claude-prompt.md](claude-prompt.md).

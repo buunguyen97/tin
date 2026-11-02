@@ -30,3 +30,6 @@ projects/*
 
 # Rendered videos, frames and QA files (contain news photos; internal use only)
 output/
+
+# VieNeu-TTS cloned inside the project (see demo/README.md)
+VieNeu-TTS/
