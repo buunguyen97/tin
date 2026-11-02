@@ -1,6 +1,6 @@
 # Prompt cho lịch chạy Claude mỗi sáng
 
-Dán phần trong khung dưới đây vào routine của Claude (claude.ai/code/routines), chạy 7:00 mỗi ngày. Routine cần connector Google Sheets, và môi trường cloud phải cho phép truy cập các báo trong danh sách cùng `trends.google.com` (Network access → Allowed domains).
+Dán phần trong khung dưới đây vào routine của Claude (claude.ai/code/routines), chạy 7:00 mỗi ngày. Routine cần connector Google Sheets, và môi trường cloud phải cho phép truy cập các báo trong danh sách cùng `trends.google.com` và `commons.wikimedia.org` (Network access → Allowed domains).
 
 Thay `<LINK GOOGLE SHEET>` bằng link Sheet của bạn; không commit link thật vào repo public. Danh sách ngành phải khớp với `filter.nganh` của các chương trình trong `demo/config.json`. Mốc 17:00 hôm trước phải khớp với `freshness` trong config (`anchor_hour` 7 trừ `max_age_hours` 14).
 
@@ -41,7 +41,11 @@ BƯỚC 4 — CHỌN TIN:
 - Mỗi ngành 3–5 tin (ít nhất 2 nếu có, để ngành đó đủ một video), ưu tiên điểm nóng cao; Thứ tự 1 = tin nóng nhất của ngành. Ngành nào không có tin từ MỐC trở về sau thì bỏ ngành đó; KHÔNG lấy tin cũ cho đủ số.
 - Tin Hot: 5–6 tin có điểm nóng cao nhất cả ngày, Thứ tự hot theo điểm. Tin Hot phải có ít nhất một tín hiệu: nằm trong Tin nổi bật / Xem nhiều, khớp Google Trends, hoặc từ 2 báo cùng đưa. Các tin còn lại Hot = FALSE.
 - Đọc tab "Tin" trước và bỏ mọi tin có URL hoặc nội dung đã có trong Sheet (bất kỳ ngày nào).
-- MỞ TỪNG BÀI GỐC để kiểm chứng số liệu, giờ đăng và lấy og:image trước khi ghi.
+- MỞ TỪNG BÀI GỐC để kiểm chứng số liệu, giờ đăng, lấy og:image và chú thích nguồn ảnh (cột S) trước khi ghi.
+- ẢNH THAY THẾ: nếu ảnh của bài KHÔNG dùng được (nguồn ảnh là tên phóng viên, hãng thông tấn hay báo khác, ảnh AI, hoặc bài không ghi nguồn ảnh), tìm một ảnh minh họa đúng chủ đề trên Wikimedia Commons, chỉ lấy ảnh CC0 hoặc public domain. Tìm bằng từ khóa TIẾNG ANH, ưu tiên có "Vietnam", "Hanoi", "Ho Chi Minh City":
+  curl -s -A "tin-news/1.0" "https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=search&gsrsearch=filetype:bitmap%20<TỪ+KHÓA>%20haswbstatement:P275=Q6938433|P6216=Q19652&gsrnamespace=6&gsrlimit=10&prop=imageinfo&iiprop=url|extmetadata&iiextmetadatafilter=LicenseShortName&iiurlwidth=1280"
+  Nếu API trả lỗi (ví dụ "too busy"), chờ vài giây rồi thử lại tối đa 2 lần; vẫn lỗi thì ghi "none" ở cột R. Tuyệt đối không quay lại dùng ảnh của báo.
+  Chọn ảnh chụp thật, khung ngang, đúng chủ đề. Ảnh phải là CẢNH CHUNG không nhận ra địa điểm cụ thể (cận cảnh máy bay, tiền, thẻ ngân hàng, biểu đồ, công trường, đường dây điện, khu chung cư...), hoặc chụp đúng tại Việt Nam. KHÔNG chọn ảnh nhận ra địa danh, sân bay, tòa nhà hay thành phố ở nước ngoài (ví dụ ảnh sân bay Tallinn cho tin sân bay Long Thành). KHÔNG chọn logo, bản đồ, hình vẽ, ảnh cũ đen trắng, ảnh có khuôn mặt người nhìn rõ, hay ảnh có thể khiến người xem tưởng là ảnh của chính sự kiện (hiện trường vụ án, người bị bắt, tai nạn). Với tin Pháp luật, mặc định ghi "none", không dùng ảnh thay thế. Ghi thumburl vào cột R và "Wikimedia Commons (CC0)" hoặc "Wikimedia Commons (public domain)" vào cột S, đúng theo LicenseShortName. Không tìm được ảnh phù hợp thì ghi "none" ở cột R. Nếu ảnh của bài DÙNG ĐƯỢC thì giữ ảnh của bài, không tìm ảnh thay thế.
 
 BƯỚC 5 — GHI VÀO SHEET: ghi TẤT CẢ tin trong MỘT lần ghi duy nhất (update vào vùng A{n}:U{m}, không append), ngay dưới dòng cuối có ô Ngày (cột A) không trống. Cột Hot là ô tick nên dòng trống vẫn có FALSE ở cột E; đừng coi đó là dữ liệu. Nếu dòng cuối m lớn hơn số dòng của tab "Tin" (xem gridProperties.rowCount bằng get_spreadsheet), trước tiên thêm 2000 dòng bằng update_spreadsheet appendDimension rồi mới ghi. KHÔNG sửa, xoá hay sắp xếp lại dòng cũ; không thêm dòng tiêu đề.
 
@@ -53,16 +57,16 @@ D Ngành: CHÍNH XÁC một trong 9 tên: Vĩ mô – Chính sách | Tài chính
 E Hot: TRUE hoặc FALSE
 F Thứ tự hot: 1–6 cho tin Hot, để trống nếu không
 G Chuyên mục: VIẾT HOA, tối đa 34 ký tự, ví dụ "KẾT QUẢ KINH DOANH", "XÉT XỬ"
-H Tiêu đề 1, I Tiêu đề 2: tiêu đề chia 2 dòng, MỖI DÒNG TỐI ĐA 26 KÝ TỰ
+H Tiêu đề 1, I Tiêu đề 2: tiêu đề chia 2 dòng, MỖI DÒNG TỐI ĐA 26 KÝ TỰ; tự đặt, không chép tiêu đề của báo
 J Số liệu: con số chính, tối đa 9 ký tự, dấu phẩy thập phân kiểu Việt Nam ("129,3%", "230", "25.10" cho ngày). Ghi dạng văn bản.
 K Đơn vị: chú thích cho con số, tối đa 40 ký tự
 L Chi tiết 1, M Chi tiết 2: hai ý phụ, mỗi ý tối đa 42 ký tự
 N Ghi chú: tối đa 110 ký tự; ghi rõ ngày sự kiện nếu khác ngày đưa tin; ghi "đề xuất, chưa có hiệu lực" nếu là dự thảo
 O Nguồn: "Tên báo • DD/MM/YYYY", tối đa 55 ký tự
 P URL: link bài gốc (bắt buộc)
-Q Kịch bản: lời đọc 35–55 từ. VIẾT MỌI CON SỐ, NGÀY, PHẦN TRĂM BẰNG CHỮ. Không viết tắt. KHÔNG chào hay giới thiệu bản tin.
-R Ảnh URL: og:image của bài; "none" nếu chỉ có logo hoặc ảnh không liên quan; để trống nếu không lấy được
-S Ảnh nguồn: tác giả/báo sở hữu ảnh nếu bài ghi rõ
+Q Kịch bản: lời đọc 35–55 từ, TỰ VIẾT LẠI BẰNG LỜI CỦA MÌNH từ các sự kiện và số liệu đã kiểm chứng; KHÔNG chép hay chỉ đổi vài chữ từ câu của bài gốc (kể cả sapo và tiêu đề), không trích dẫn nguyên đoạn. VIẾT MỌI CON SỐ, NGÀY, PHẦN TRĂM BẰNG CHỮ. Không viết tắt. KHÔNG chào hay giới thiệu bản tin.
+R Ảnh URL: og:image của bài, hoặc ảnh thay thế từ Wikimedia Commons (xem BƯỚC 4); "none" nếu chỉ có logo hoặc ảnh không liên quan; để trống nếu không lấy được
+S Ảnh nguồn: chép NGUYÊN VĂN phần sau "Ảnh:" trong chú thích của ảnh đầu bài (ví dụ "VGP", "Bộ Công an", "HSG", "Ngọc Thành", "Reuters"); để trống nếu chú thích không ghi. KHÔNG đoán, KHÔNG ghi tên báo thay cho nguồn ảnh. Máy làm video chỉ dùng ảnh của cơ quan nhà nước, ban tổ chức hoặc doanh nghiệp; ảnh phóng viên, hãng thông tấn (Reuters, AFP...), ảnh AI hoặc không ghi nguồn sẽ bị bỏ và tin dùng nền không ảnh. Vì vậy khi nhiều báo cùng đưa một tin, ưu tiên bài có ảnh của cơ quan hoặc doanh nghiệp; không có thì dùng ảnh thay thế ở BƯỚC 4 và ghi nguồn "Wikimedia Commons (CC0)".
 T Thời gian đăng: BẮT BUỘC, dạng "DD/MM/YYYY HH:MM" theo giờ Việt Nam, lấy từ pubDate hoặc giờ đăng trong bài gốc (đổi múi giờ nếu pubDate không phải +0700)
 U Lý do nóng: các tín hiệu ở bước 3; để trống nếu không có
 

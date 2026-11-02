@@ -22,7 +22,7 @@ demo = Path(__file__).resolve().parent
 project = demo.parent
 DAILY = project / 'output' / 'daily'
 ASSETS = demo / 'assets'
-CACHED = ['img-*', 'vieneu-*.wav', 'edge-*.mp3']  # content-addressed, re-created on demand
+CACHED = ['img-*', 'credit-*.txt', 'vieneu-*.wav', 'edge-*.mp3']  # content-addressed, re-created on demand
 DAY_DIR = re.compile(r'\d{4}-\d{2}-\d{2}')
 
 

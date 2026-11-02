@@ -5,16 +5,22 @@
 
 Images are cached in demo/assets/img-<hash>.<ext>, so a story shared by a sector video and the
 round-up is downloaded once. Each workdir gets images.json: story number -> cached file.
+
+With "image_rights": "kiem-tra" in config.json (the default), a photo is used only when its credit
+allows it (image_rights.py): the sheet's "Ảnh nguồn" if the editor filled it in, else the caption
+in the article, cached in demo/assets/credit-<hash>.txt. Other stories get the plain background.
 """
-import argparse, hashlib, json, re, subprocess, sys, time
+import argparse, hashlib, json, os, re, subprocess, sys, time
 from html import unescape
 from pathlib import Path
 from urllib.parse import urljoin
 
 from edition import load_edition
+from image_rights import judge, photo_credit
 
 root = Path(__file__).resolve().parent
 assets = root / 'assets'
+CONFIG_FILE = Path(os.environ.get('DIEMTIN_CONFIG', root / 'config.json'))
 UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36'
 EXT = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp'}
 META = re.compile(r'<meta\s[^>]*>', re.I)
@@ -33,9 +39,18 @@ def get(url, accept='*/*'):
     return body, ctype.decode().split(';')[0].strip().lower()
 
 
-def og_image(page_url):
-    html, _ = get(page_url, 'text/html')
-    html = html.decode('utf-8', 'replace')
+def article(page_url):
+    for attempt in range(1, 4):
+        try:
+            return get(page_url, 'text/html')[0].decode('utf-8', 'replace')
+        except ValueError:
+            if attempt == 3:
+                raise
+            time.sleep(2 * attempt)
+
+
+def og_image(page_url, html=None):
+    html = html if html is not None else article(page_url)
     found = {}
     for tag in META.findall(html):
         attrs = {k.lower(): unescape(v1 or v2) for k, _, v1, v2 in ATTR.findall(tag)}
@@ -48,10 +63,28 @@ def og_image(page_url):
     return None
 
 
+def image_key(story):
+    # news.json may pin an image (e.g. when the article page has no usable og:image).
+    return hashlib.sha1((story.get('image') or story['url']).encode()).hexdigest()[:16]
+
+
+def story_credit(story):
+    """Who owns the story's photo: the editor's "Ảnh nguồn", else the article's caption ('' if none)."""
+    if story.get('image_credit'):
+        return story['image_credit']
+    cache = assets / f'credit-{image_key(story)}.txt'
+    if cache.exists():
+        cache.touch()  # auto_render.py keeps recently used cache files
+        return cache.read_text(encoding='utf-8')
+    page = article(story['url'])
+    credit = photo_credit(page, story.get('image') or og_image(story['url'], page) or '')
+    cache.write_text(credit, encoding='utf-8')
+    return credit
+
+
 def fetch_story_image(story):
     """Return the cached file name for a story's image, downloading it if needed."""
-    # news.json may pin an image (e.g. when the article page has no usable og:image).
-    key = hashlib.sha1((story.get('image') or story['url']).encode()).hexdigest()[:16]
+    key = image_key(story)
     cached = sorted(assets.glob(f'img-{key}.*'))
     if cached:
         cached[0].touch()  # auto_render.py keeps recently used cache files
@@ -74,7 +107,7 @@ def fetch_story_image(story):
             time.sleep(2 * attempt)
 
 
-def process(workdir, legacy):
+def process(workdir, legacy, check_rights=True):
     edition = load_edition(root / 'news.json' if legacy else workdir / 'news.json')
     manifest, failed = {}, 0
     for i, story in enumerate(edition['stories'], 1):
@@ -82,10 +115,20 @@ def process(workdir, legacy):
         if story.get('image') is False:  # article has no relevant photo; prepare.py draws a plain background
             print(f'  {i}. {title}: không dùng ảnh', flush=True)
             continue
+        credit = None
+        if check_rights:
+            try:
+                credit = story_credit(story)
+                usable, reason = judge(credit)
+            except Exception as e:  # unknown owner: not used
+                usable, reason = False, f'không mở được bài để xem nguồn ảnh ({e})'
+            if not usable:
+                print(f'  {i}. {title}: BỎ ẢNH, {reason}; dùng nền không ảnh', flush=True)
+                continue
         try:
             name, cached = fetch_story_image(story)
-            manifest[str(i)] = {'article': story['url'], 'file': name}
-            print(f'  {i}. {title}: {"có sẵn" if cached else "đã tải"} {name}', flush=True)
+            manifest[str(i)] = {'article': story['url'], 'file': name, **({'credit': credit} if credit else {})}
+            print(f'  {i}. {title}: {"có sẵn" if cached else "đã tải"} {name}{f" (ảnh: {credit})" if credit else ""}', flush=True)
         except Exception as e:  # keep going: prepare.py falls back to the plain background
             failed += 1
             print(f'CẢNH BÁO: tin "{title}" không tải được ảnh ({e}); dùng nền gradient', flush=True)
@@ -98,10 +141,12 @@ def main():
     parser.add_argument('--workdir', nargs='+', type=Path, help='Thư mục video (mặc định: demo/)')
     args = parser.parse_args()
     assets.mkdir(exist_ok=True)
+    config = json.loads(CONFIG_FILE.read_text(encoding='utf-8')) if CONFIG_FILE.exists() else {}
+    check_rights = config.get('image_rights', 'kiem-tra') != 'tat'
     failed = 0
     for wd in args.workdir or [root]:
         print(f'[{wd.name}]', flush=True)
-        failed += process(wd.resolve(), legacy=args.workdir is None)
+        failed += process(wd.resolve(), legacy=args.workdir is None, check_rights=check_rights)
     print('ảnh lỗi:', failed)
 
 

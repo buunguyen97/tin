@@ -3,6 +3,7 @@ from pathlib import Path
 from tts_audio import audio_duration, cache_path
 from datetime import date as Date
 from edition import load_edition, display_date, WEEKDAYS, VOICE_SAMPLES
+from image_rights import is_stock
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 root=Path(__file__).resolve().parent
 assets=root/'assets'; assets.mkdir(exist_ok=True)
@@ -204,11 +205,19 @@ def _card_subtitle(item,size):
  name=item['source'].split(' • ')[0]; end=y-lh+135
  s.append(f'<text x="{right-100}" y="{end}" font-size="36" stroke-width="7" text-anchor="end" {outline}>Nguồn: {html.escape(name)}</text>')
  return s,end
+def stock_tag(layout):
+ """'Ảnh minh họa' pill on a library photo, so it isn't taken for a photo of the event: bottom-left
+ in a window, top-left on full-width photos."""
+ size,pad,h=18,10,28; label='Ảnh minh họa'; w=round(text_width(label,size,400))+2*pad
+ if layout in WINDOWS: x,y,_,wh,_=WINDOWS[layout]; x,top=max(x+20,SAFE['left']),y+wh-16-h
+ else: x,top=SAFE['left'],max(BAND[0] if layout=='phu-de' else 0,SAFE['top'])+16
+ return [f'<rect x="{x}" y="{top}" width="{w}" height="{h}" rx="{h//2}" fill="#000000" fill-opacity=".45"/>',
+         text(x+pad,top+20,label,size,'#FFFFFF',400,extra=' fill-opacity=".9"')]
 CARDS={'goc':(_card_goc,68),'anh-tran-tren':(_card_photo_top,80),'anh-tran-vien':(_card_photo_bleed,72),'the-kem':(_card_cream,80),'phu-de':(_card_subtitle,56)}
-def card(edition,item,i,layout='goc'):
+def card(edition,item,i,layout='goc',stock=False):
  """Overlay drawn by the player above the still background, in one of LAYOUTS. Every text stays in
  TikTok's safe area (SAFE): clear of the tabs on top, the caption below and the button rail; a
- story too long for it gets a smaller headline."""
+ story too long for it gets a smaller headline. `stock`: the photo is a library stand-in."""
  build,size=CARDS[layout]
  for size in range(size,size-20,-4):
   s,end=build(item,size)
@@ -220,6 +229,7 @@ def card(edition,item,i,layout='goc'):
  if layout in WINDOWS:
   x,y,w,h,r=WINDOWS[layout]; window=rounded(x,y,w,h,r)
   head+=[f'<path d="M0 0H{W}V{H}H0Z{window}" fill="{INK}" fill-rule="evenodd"/>',f'<path d="{window}" fill="none" stroke="{YELLOW}" stroke-width="{6 if layout=="goc" else 5}"/>']
+ if stock: s+=stock_tag(layout)
  return ''.join(head+s+['</svg>'])
 def shuffled_layouts(edition):
  """The layouts in a random order, one after another so a video doesn't repeat one look. Seeded by
@@ -350,7 +360,8 @@ async def prepare(workdir,legacy,voice,model,force):
   layout=layouts[i%len(layouts)]
   if layout in PHOTO_ONLY and not entry: layout='goc'  # a photo layout without a photo would leave the frame empty
   frame=background(item,assets/entry['file'] if entry else None,out_dir/f'bg-{i+1}-frame.jpg',layout)
-  overlay=out_dir/f'{i+1}.svg'; overlay.write_text(card(edition,item,i,layout))
+  stock=bool(entry) and is_stock(entry.get('credit') or item.get('image_credit'))
+  overlay=out_dir/f'{i+1}.svg'; overlay.write_text(card(edition,item,i,layout,stock))
   manuscripts.append(manuscript(i+1,' '.join(item['title']),item['source'],script,audio_file,duration,frame,overlay))
   total+=duration; print(f'  {i+1}. {" ".join(item["title"])}: {duration}s{" (giọng có sẵn)" if cached else ""}',flush=True)
  props={'manuscripts':manuscripts,'width':1080,'height':1920,'voice':True,'backgroundMusic':False,'disabledLogo':True,'playerConfig':{'assetBaseUrl':BASE,'logo':'unused.svg','defaultCameraMovements':['none'],'styles':{'all':{'captions':{'container':'display:none;'},'progress':{'active':'display:none;','inactive':'display:none;'}}}}}

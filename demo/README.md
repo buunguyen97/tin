@@ -128,6 +128,7 @@ Tác vụ chạy `demo/auto_render.py` mỗi 10 phút trong khung `auto_render.w
 - `brand`: dòng thương hiệu trên intro.
 - `outro`: câu đọc cuối video (để trống thì không có).
 - `intro_image`: ảnh nền intro dùng chung, đường dẫn tương đối từ `demo/`.
+- `image_rights`: `"kiem-tra"` (mặc định) chỉ dùng ảnh được phép, xem [Kiểm tra nguồn ảnh](#kiểm-tra-nguồn-ảnh); `"tat"` dùng mọi ảnh như trước (chỉ cho video nội bộ).
 
 Thêm ngành: thêm một mục vào `programmes`, thêm tên ngành vào dropdown cột Ngành trên Sheet và vào danh sách ngành trong [claude-prompt.md](claude-prompt.md).
 
@@ -158,6 +159,17 @@ node demo/render.mjs
 ## Nền ảnh tin tức (chỉ dùng nội bộ)
 
 `fetch_images.py` tải `og:image` của từng bài báo về `assets/bg-N.*`, ghi lại trong `images.json`. Ảnh thuộc bản quyền của báo gốc, nên video chỉ dùng nội bộ và không đăng công khai.
+
+### Kiểm tra nguồn ảnh
+
+Mỗi lần tạo video (Studio, `run_daily.py`, tự render), bước tải ảnh xem ai sở hữu ảnh của từng tin trước khi dùng (`image_rights.py`):
+
+- Nguồn ảnh lấy từ cột **Ảnh nguồn** nếu biên tập viên đã điền. Nếu cột trống, máy đọc chú thích ảnh trong bài gốc ("… Ảnh: VGP"). Ảnh đại diện thường là bản cắt từ ảnh đầu bài, khi đó dùng chú thích của ảnh đầu bài. Kết quả lưu ở `assets/credit-<mã>.txt`.
+- **Dùng**: ảnh cơ quan nhà nước (VGP, Quốc hội, Bộ, Sở, UBND, Công an…), ban tổ chức, doanh nghiệp (mã cổ phiếu, tên công ty, “… cung cấp”), thư viện ảnh miễn phí (Unsplash, Pexels, Pixabay, Wikimedia), ảnh tự chụp.
+- **Bỏ**: ảnh phóng viên (tên người, ví dụ “Ngọc Thành”, “HỮU HẠNH”), hãng thông tấn (Reuters, AFP, TTXVN…), báo khác, ảnh AI, ảnh không ghi nguồn hoặc không mở được bài. Tin bị bỏ ảnh dùng bố cục `goc` với nền không ảnh; nhật ký ghi “BỎ ẢNH” kèm lý do.
+- Muốn dùng một ảnh bị bỏ nhầm, điền nguồn đúng vào cột **Ảnh nguồn**, ví dụ “Công an cung cấp”. Muốn thay ảnh, dán link ảnh hợp lệ vào **Ảnh URL** và ghi nguồn của ảnh đó.
+
+Đây là kiểm tra tự động dựa trên chú thích, không thay cho việc xem lại trước khi đăng công khai.
 
 - Ghim ảnh khác: `"image": "<url>"` trong `news.json`. Bỏ ảnh khi bài chỉ có logo: `"image": false`, khi đó tin dùng nền gradient theo màu nhấn.
 - Ghi chú ảnh: mặc định lấy tên nguồn; đổi bằng `"image_credit"`.
