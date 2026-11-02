@@ -20,7 +20,11 @@ LABELS = {'sheet': 'Đọc Google Sheet, chia tin theo video', 'images': 'Tải 
 
 
 def vieneu_python():
-    path = Path(os.environ.get('VIENEU_PYTHON', project.parent / 'VieNeu-TTS' / '.venv' / 'bin' / 'python'))
+    venv = Path('.venv', 'Scripts', 'python.exe') if sys.platform == 'win32' else Path('.venv', 'bin', 'python')
+    default = project.parent / 'VieNeu-TTS' / venv
+    if not default.exists() and (project / 'VieNeu-TTS' / venv).exists():  # cloned inside the project
+        default = project / 'VieNeu-TTS' / venv
+    path = Path(os.environ.get('VIENEU_PYTHON', default))
     if not path.exists():
         sys.exit(f'Không thấy Python của VieNeu tại {path}; đặt biến VIENEU_PYTHON')
     return str(path)

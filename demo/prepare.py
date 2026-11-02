@@ -1,16 +1,29 @@
-import argparse, asyncio, json, math, html, time, wave, os
+import argparse, asyncio, base64, functools, hashlib, json, math, html, time, wave, os
 from pathlib import Path
 from tts_audio import audio_duration, cache_path
 from datetime import date as Date
-from edition import load_edition, display_date, WEEKDAYS
+from edition import load_edition, display_date, WEEKDAYS, VOICE_SAMPLES
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 root=Path(__file__).resolve().parent
 assets=root/'assets'; assets.mkdir(exist_ok=True)
 BASE='http://127.0.0.1:8765'  # render.mjs serves demo/ here
-W,H=1080,1920; PHOTO_TOP,PHOTO_MAX=300,640
+W,H=1080,1920
+INK,YELLOW='#0B0B0B','#FFD21F'
+FRAME=(44,270,992,570,40)  # photo window on the story card: x, y, width, height, corner radius
 def url(path): return f'{BASE}/{Path(path).resolve().relative_to(root).as_posix()}'
-def text(x,y,value,size=40,color='#F6F8FC',weight=400,anchor='start'):
- return f'<text x="{x}" y="{y}" fill="{color}" font-family="Arial, sans-serif" font-size="{size}" font-weight="{weight}" text-anchor="{anchor}">{html.escape(value)}</text>'
+# Be Vietnam Pro (OFL, demo/fonts) is embedded in every card: the player draws cards as <img>,
+# which cannot load outside fonts, and system fonts differ between machines.
+FAMILY="'Be Vietnam Pro', sans-serif"
+FONT_FILES=[('Regular',400,'normal'),('Bold',700,'normal'),('ExtraBold',800,'normal'),('ExtraBoldItalic',800,'italic'),('Black',900,'normal')]
+@functools.cache
+def font_style():
+ faces=''.join(f"@font-face{{font-family:'Be Vietnam Pro';font-weight:{weight};font-style:{style};src:url(data:font/ttf;base64,{base64.b64encode((root/'fonts'/f'BeVietnamPro-{name}.ttf').read_bytes()).decode()}) format('truetype')}}" for name,weight,style in FONT_FILES)
+ return f'<style>{faces}</style>'
+def text(x,y,value,size=40,color='#F6F8FC',weight=400,anchor='start',extra=''):
+ return f'<text x="{x}" y="{y}" fill="{color}" font-family="{FAMILY}" font-size="{size}" font-weight="{weight}" text-anchor="{anchor}"{extra}>{html.escape(value)}</text>'
+def rounded(x,y,w,h,r):
+ return f'M{x+r} {y}H{x+w-r}A{r} {r} 0 0 1 {x+w} {y+r}V{y+h-r}A{r} {r} 0 0 1 {x+w-r} {y+h}H{x+r}A{r} {r} 0 0 1 {x} {y+h-r}V{y+r}A{r} {r} 0 0 1 {x+r} {y}Z'
+def text_width(value,size,bold=True): return len(value)*size*(.64 if bold else .56)  # Be Vietnam Pro, rough
 def wrap(value,limit):
  lines=[]; line=''
  for w in value.split():
@@ -18,33 +31,50 @@ def wrap(value,limit):
   else: line=(line+' '+w).strip()
  return lines+[line]
 def background(item,photo,out):
- """1080x1920 JPEG: blurred cover fill + sharp landscape photo in the top half.
- og:images are ~1200x630, so cropping one to full portrait would upscale it ~3x."""
+ """1080x1920 JPEG: the landscape photo exactly behind the card's photo window, black elsewhere.
+ Images stay still (cameraMovement "none"), so the photo needs no margin around the window."""
+ x,y,w,h,_=FRAME; band=(x,y,x+w,y+h)
+ bg=Image.new('RGB',(W,H),INK)
  if photo:
-  src=Image.open(photo).convert('RGB')
-  bg=ImageEnhance.Brightness(ImageOps.fit(src,(W//4,H//4)).filter(ImageFilter.GaussianBlur(10))).enhance(.45).resize((W,H),Image.LANCZOS)
-  h=min(round(W*src.height/src.width),PHOTO_MAX)
-  bg.paste(ImageOps.fit(src,(W,h),Image.LANCZOS),(0,PHOTO_TOP))
+  bg.paste(ImageOps.fit(Image.open(photo).convert('RGB'),(band[2]-band[0],band[3]-band[1]),Image.LANCZOS),band[:2])
  else:
-  # No relevant photo: dark gradient with a soft accent glow where the photo would be.
-  bg=Image.new('RGB',(W,H),'#060D18'); d=ImageDraw.Draw(bg)
-  for y in range(H): d.line([(0,y),(W,y)],fill=tuple(round(a+(b-a)*y/H) for a,b in zip((16,30,50),(6,13,24))))
-  glow=Image.new('L',(W,H),0); ImageDraw.Draw(glow).ellipse((90,320,990,900),fill=190)
-  bg=Image.composite(Image.new('RGB',(W,H),item['accent']),bg,glow.filter(ImageFilter.GaussianBlur(110)))
+  # No relevant photo: dark panel with a soft yellow glow in the window.
+  d=ImageDraw.Draw(bg); d.rectangle(band,fill='#1A1A1A')
+  glow=Image.new('L',(W,H),0); ImageDraw.Draw(glow).ellipse((x+150,y+80,x+w-150,y+h-80),fill=120)
+  bg=Image.composite(Image.new('RGB',(W,H),YELLOW),bg,glow.filter(ImageFilter.GaussianBlur(110)))
  bg.save(out,quality=90); return out
 def card(edition,item,i,credit):
- """Transparent overlay drawn by the player above the (zooming) background."""
- a=item['accent']; total=len(edition['stories']); s=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">','<defs><linearGradient id="top" x2="0" y2="1"><stop stop-color="#060D18" stop-opacity=".9"/><stop offset="1" stop-color="#060D18" stop-opacity="0"/></linearGradient><linearGradient id="bottom" x2="0" y2="1"><stop stop-color="#060D18" stop-opacity="0"/><stop offset=".13" stop-color="#060D18" stop-opacity=".93"/><stop offset="1" stop-color="#060D18" stop-opacity=".97"/></linearGradient></defs>','<rect width="1080" height="330" fill="url(#top)"/><rect y="830" width="1080" height="1090" fill="url(#bottom)"/>']
- s += [f'<rect x="80" y="108" width="12" height="44" rx="6" fill="{a}"/>',text(114,143,edition['title'],32,weight=700),text(80,215,display_date(edition['date'])[0],27,'#B6C4D5'),text(1000,143,f'{i+1:02d} / {total:02d}',30,a,700,'end')]
- if credit: s.append(text(1000,940,f'Ảnh: {credit}',21,'#AAB8CA',anchor='end'))
- s.append(text(80,985,item['category'],27,a,700))
- for j,line in enumerate(item['title']): s.append(text(80,1065+j*72,line,58,weight=700))
- s += [f'<rect x="80" y="1200" width="920" height="270" rx="28" fill="{a}" fill-opacity=".1" stroke="{a}" stroke-opacity=".35"/>',text(120,1345,item['number'],130 if len(item['number'])<6 else 112,a,700),text(120,1425,item['unit'],30,a,700)]
- for j,line in enumerate(item['detail']): s.append(text(80,1545+j*55,line,38,weight=700))
- for j,line in enumerate(wrap(item['note'],55)[:2]): s.append(text(80,1665+j*38,line,27,'#AAB8CA'))
- s += ['<path d="M80 1745H1000" stroke="#334155"/>',text(80,1790,'NGUỒN',22,'#788CA5',700),text(80,1830,item['source'],26,'#B6C4D5'),text(1000,1790,'NỘI BỘ • GIỌNG ĐỌC AI',20,'#788CA5',anchor='end')]
- for j in range(total): s.append(f'<rect x="{80+j*(940//total)}" y="1868" width="{940//total-20}" height="5" rx="2" fill="{a if j==i else "#283449"}"/>')
- s.append('</svg>'); return ''.join(s)
+ """Overlay drawn by the player above the (zooming) background: black page with a yellow-framed
+ photo window, category tag, headline, figure box, details and source."""
+ x,y,w,h,r=FRAME; window=rounded(x,y,w,h,r)
+ s=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">',font_style(),
+    '<defs><linearGradient id="box"><stop stop-color="#161616"/><stop offset="1" stop-color="#2E2710"/></linearGradient></defs>',
+    f'<path d="M0 0H{W}V{H}H0Z{window}" fill="{INK}" fill-rule="evenodd"/>',f'<path d="{window}" fill="none" stroke="{YELLOW}" stroke-width="7"/>']
+ if credit: s.append(text(x+w,y+h+38,f'Ảnh: {credit}',20,'#8A8A8A',anchor='end'))
+ # Category tag: slanted yellow block plus a thin stripe after it.
+ cat=item['category']; tw=round(text_width(cat,40)+70); tx,ty,th,sk=74,y+h+40,74,22
+ s+=[f'<path d="M{tx+sk} {ty}H{tx+sk+tw}L{tx+tw} {ty+th}H{tx}Z" fill="{YELLOW}"/>',
+     f'<path d="M{tx+tw+14+sk} {ty}h16L{tx+tw+30} {ty+th}h-16Z" fill="{YELLOW}"/>',
+     text(round(tx+sk/2+tw/2),ty+52,cat,40,INK,800,'middle',' font-style="italic"')]
+ lines=item['title']; size=min(76,int(920/text_width(max(lines,key=len),1))); cy=ty+th+18
+ for line in lines: cy+=round(size*1.15); s.append(text(86,cy,line,size,'#FFFFFF',700))
+ # Figure box: big yellow number | unit, wrapped to at most two lines.
+ bx,by,bw,bh=76,cy+50,928,200; mid=by+bh//2; num=item['number']
+ ns=min(150,int(380/text_width(num,1))); dx=round(bx+60+text_width(num,ns)+45); ux=dx+45
+ for us in range(44,28,-2):
+  unit=wrap(item['unit'],max(1,int((bx+bw-40-ux)/(us*.62))))
+  if len(unit)<=2: break
+ s+=[f'<rect x="{bx}" y="{by}" width="{bw}" height="{bh}" rx="30" fill="url(#box)" stroke="{YELLOW}" stroke-width="5"/>',
+     text(bx+60,round(mid+ns*.36),num,ns,YELLOW,800),f'<rect x="{dx}" y="{mid-55}" width="6" height="110" rx="3" fill="{YELLOW}"/>']
+ for j,line in enumerate(unit): s.append(text(ux,round(mid+us*.36+(j-(len(unit)-1)/2)*us*1.3),line,us,'#FFFFFF'))
+ cy=by+bh+30
+ for line in item['detail']: cy+=70; s.append(text(86,cy,line,46,'#FFFFFF',700))
+ if item['note']: cy+=12
+ for line in wrap(item['note'],60)[:2]: cy+=42; s.append(text(86,cy,line,28,'#9A9A9A'))
+ ly=cy+70; source=item['source'].split(' • ')[0]
+ s+=[f'<path d="M96 {ly-4}L500 {ly}L96 {ly+4}Z" fill="{YELLOW}"/>',
+     f'<text x="96" y="{ly+75}" fill="#FFFFFF" font-family="{FAMILY}" font-size="32">Nguồn: <tspan font-weight="700">{html.escape(source)}</tspan></text>','</svg>']
+ return ''.join(s)
 def spoken(edition,i):
  """What the voice reads for story i; the outro closes the last one."""
  parts=[edition['stories'][i]['script'],edition.get('outro','') if i==len(edition['stories'])-1 else '']
@@ -56,16 +86,15 @@ def intro_frame(edition,photos,out):
   bg=ImageOps.fit(Image.open(path).convert('RGB'),(W,H),Image.LANCZOS)
  else:
   files=[assets/photos[k]['file'] for k in sorted(photos,key=int)][:3]
-  if len(files)<2: return background({'accent':edition['intro_accent']},files[0] if files else None,out)
-  bg=Image.new('RGB',(W,H)); h=H//len(files)
+  bg=Image.new('RGB',(W,H),INK); h=H//max(len(files),1)
   for j,f in enumerate(files): bg.paste(ImageOps.fit(Image.open(f).convert('RGB'),(W,h if j<len(files)-1 else H-h*j),Image.LANCZOS),(0,h*j))
  ImageEnhance.Brightness(bg).enhance(.8).save(out,quality=90); return out
 def intro_card(edition):
  """Title card: 'BẢN TIN | THỨ BA', headline, big date, tagline, brand."""
  a=edition['intro_accent']; y,m,d=edition['date'].split('-'); lines=edition['intro_title']
- size=min(92,int(900/(.66*max(len(l) for l in lines))))
- head='font-family="Arial Black, Arial, sans-serif" font-weight="900" text-anchor="middle" filter="url(#sh)"'
- s=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">','<defs><filter id="sh" x="-10%" y="-20%" width="120%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity=".7"/></filter><linearGradient id="v" x2="0" y2="1"><stop stop-color="#060D18" stop-opacity=".55"/><stop offset=".35" stop-color="#060D18" stop-opacity=".1"/><stop offset=".7" stop-color="#060D18" stop-opacity=".25"/><stop offset="1" stop-color="#060D18" stop-opacity=".95"/></linearGradient></defs>',f'<rect width="{W}" height="{H}" fill="url(#v)"/>','<rect x="60" y="770" width="960" height="640" rx="36" fill="#060D18" fill-opacity=".5"/>']
+ size=min(92,int(900/(.76*max(len(l) for l in lines))))
+ head=f'font-family="{FAMILY}" font-weight="900" text-anchor="middle" filter="url(#sh)"'
+ s=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">',font_style(),'<defs><filter id="sh" x="-10%" y="-20%" width="120%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity=".7"/></filter><linearGradient id="v" x2="0" y2="1"><stop stop-color="#060D18" stop-opacity=".55"/><stop offset=".35" stop-color="#060D18" stop-opacity=".1"/><stop offset=".7" stop-color="#060D18" stop-opacity=".25"/><stop offset="1" stop-color="#060D18" stop-opacity=".95"/></linearGradient></defs>',f'<rect width="{W}" height="{H}" fill="url(#v)"/>','<rect x="60" y="770" width="960" height="640" rx="36" fill="#060D18" fill-opacity=".5"/>']
  chip=f'BẢN TIN  |  {WEEKDAYS[Date(int(y),int(m),int(d)).weekday()]}'
  s+=[f'<rect x="100" y="680" width="{int(len(chip)*21+70)}" height="72" rx="36" fill="#0B1220" fill-opacity=".85"/>',text(135,728,chip,34,weight=700)]
  cy=840
@@ -87,6 +116,9 @@ class Voice:
     from vieneu import Vieneu
     print('Loading VieNeu v3 Turbo, CPU/ONNX fp32; voice:',self.voice,flush=True)
     self.tts=Vieneu(mode='v3turbo',backend='onnx',device='cpu',precision='fp32',threads=self.threads)
+   sample=VOICE_SAMPLES/f'{name}.wav'
+   if sample.exists():  # cloned voice
+    self.tts.save(self.tts.infer(script,ref_audio=str(sample)),str(out)); return
    if name not in [v[1] for v in self.tts.list_preset_voices()]:
     raise ValueError(f'Unknown voice: {name}. Available: {self.tts.list_preset_voices()}')
    self.tts.save(self.tts.infer(script,voice=name),str(out))
@@ -106,7 +138,9 @@ async def prepare(workdir,legacy,voice,model,force):
  photos=json.loads((workdir/'images.json').read_text()) if (workdir/'images.json').exists() else {}
  manuscripts=[]; total=0; timings=[]; name=edition.get('voice') or voice.voice
  async def record(script,label,pad=.35):
-  audio_file=cache_path(assets,provider=voice.provider,voice=name,model=model,text=script)
+  sample=VOICE_SAMPLES/f'{name}.wav'  # a re-recorded sample must not reuse the old voice's audio
+  key=f'{name}:{hashlib.sha256(sample.read_bytes()).hexdigest()[:12]}' if voice.provider=='vieneu' and sample.exists() else name
+  audio_file=cache_path(assets,provider=voice.provider,voice=key,model=model,text=script)
   started=time.monotonic(); cached=False
   if audio_file.exists() and not force:
    try:
@@ -124,7 +158,7 @@ async def prepare(workdir,legacy,voice,model,force):
   timings.append({'story':label,'audio':audio_file.name,'cached':cached,'generation_seconds':round(time.monotonic()-started,2),'video_seconds':duration})
   return audio_file,duration,cached
  def manuscript(key,title,byline,script,audio_file,duration,frame,overlay):
-  return {'meta':{'title':title,'pubdate':edition['date']+'T06:00:00Z','byline':byline,'id':key,'uniqueId':f'news-{key}','description':script,'audio':{'src':url(audio_file)}},'segments':[{'id':1,'mood':'neutral','type':'text','style':'bottom','texts':[{'type':'text','text':script,'line_id':1,'who':'default','start':0,'end':duration}],'cameraMovement':'zoom-in','images':[{'type':'image','imageAsset':{'id':str(key),'size':{'width':W,'height':H}},'url':url(frame)}],'overlay':{'url':url(overlay)},'start':0,'end':duration}]}
+  return {'meta':{'title':title,'pubdate':edition['date']+'T06:00:00Z','byline':byline,'id':key,'uniqueId':f'news-{key}','description':script,'audio':{'src':url(audio_file)}},'segments':[{'id':1,'mood':'neutral','type':'text','style':'bottom','texts':[{'type':'text','text':script,'line_id':1,'who':'default','start':0,'end':duration}],'cameraMovement':'none','images':[{'type':'image','imageAsset':{'id':str(key),'size':{'width':W,'height':H}},'url':url(frame)}],'overlay':{'url':url(overlay)},'start':0,'end':duration}]}
  if edition.get('intro_title') and edition.get('intro'):
   audio_file,duration,cached=await record(edition['intro'],'intro',pad=.6)
   frame=intro_frame(edition,{k:v for k,v in photos.items() if news[int(k)-1].get('image') is not False},out_dir/'intro-frame.jpg')
@@ -140,7 +174,7 @@ async def prepare(workdir,legacy,voice,model,force):
   overlay=out_dir/f'{i+1}.svg'; overlay.write_text(card(edition,item,i,credit))
   manuscripts.append(manuscript(i+1,' '.join(item['title']),item['source'],script,audio_file,duration,frame,overlay))
   total+=duration; print(f'  {i+1}. {" ".join(item["title"])}: {duration}s{" (giọng có sẵn)" if cached else ""}',flush=True)
- props={'manuscripts':manuscripts,'width':1080,'height':1920,'voice':True,'backgroundMusic':False,'disabledLogo':True,'playerConfig':{'assetBaseUrl':BASE,'logo':'unused.svg','defaultCameraMovements':['zoom-in'],'styles':{'all':{'captions':{'container':'display:none;'},'progress':{'active':'display:none;','inactive':'display:none;'}}}}}
+ props={'manuscripts':manuscripts,'width':1080,'height':1920,'voice':True,'backgroundMusic':False,'disabledLogo':True,'playerConfig':{'assetBaseUrl':BASE,'logo':'unused.svg','defaultCameraMovements':['none'],'styles':{'all':{'captions':{'container':'display:none;'},'progress':{'active':'display:none;','inactive':'display:none;'}}}}}
  meta_dir=root if legacy else workdir
  (meta_dir/f'props-{voice.provider}.json').write_text(json.dumps(props,ensure_ascii=False,indent=2))
  (meta_dir/'sources.md').write_text(f"# {edition['title'].capitalize()} — {display_date(edition['date'])[1]}\n\n"+'\n\n'.join(f"## {i+1}. {' '.join(n['title'])}\n\n{n['script']}\n\nNguồn: [{n['source']}]({n['url']})" for i,n in enumerate(news)))

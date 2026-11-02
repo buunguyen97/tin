@@ -48,7 +48,7 @@ class Job:
         env = {**os.environ, 'PYTHONUNBUFFERED': '1'}
         try:
             proc = subprocess.Popen(cmd, cwd=project, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                    text=True, bufsize=1)
+                                    text=True, encoding='utf-8', errors='replace', bufsize=1)
             for line in proc.stdout:
                 cls.state['log'].append(ANSI.sub('', line.rstrip('\n')))
             code = proc.wait()

@@ -1,6 +1,18 @@
 """Edition files (one news.json per video) and the programmes that produce them."""
-import fcntl, json, re, unicodedata
+import json, os, re, subprocess, sys, unicodedata
 from contextlib import contextmanager
+
+try:
+    import fcntl
+except ImportError:  # Windows
+    fcntl = None
+    import msvcrt
+
+# Windows defaults to the ANSI code page for files and pipes; every script here reads and writes
+# Vietnamese text, so rerun the script in UTF-8 mode (child processes inherit PYTHONUTF8).
+if sys.platform == 'win32' and not sys.flags.utf8_mode and sys.argv[0].endswith('.py'):
+    os.environ['PYTHONUTF8'] = '1'
+    sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.argv]))
 from pathlib import Path
 
 root = Path(__file__).resolve().parent
@@ -23,6 +35,9 @@ VOICES = [('Hải Đăng', 'Nam · Bắc · tự nhiên ⭐'), ('Mai Anh', 'Nữ
           ('Thái Sơn', 'Nam · Nam · kể chuyện'), ('Ngọc Linh', 'Nữ · Bắc · kể chuyện'), ('Thục Đoan', 'Nữ · Nam · kể chuyện'),
           ('Mỹ Duyên', 'Nữ · Nam · đọc truyện'), ('Quỳnh Anh', 'Nữ · Bắc · đọc truyện'), ('Đức Trí', 'Nam · Nam · đọc truyện'),
           ('Kim Thanh', 'Nữ · Nam · đọc truyện')]
+# Cloned voices: a 3–8 s clean sample at voices/<name>.wav makes <name> usable like a preset.
+VOICE_SAMPLES = root / 'voices'
+VOICES += [(p.stem, 'Giọng nhân bản') for p in sorted(VOICE_SAMPLES.glob('*.wav'))]
 WEEKDAYS = ['THỨ HAI', 'THỨ BA', 'THỨ TƯ', 'THỨ NĂM', 'THỨ SÁU', 'THỨ BẢY', 'CHỦ NHẬT']
 DIGITS = ['không', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín', 'mười']
 
@@ -100,8 +115,11 @@ def pipeline_lock():
     WORK.mkdir(parents=True, exist_ok=True)
     with open(LOCK, 'w') as f:
         try:
-            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+            if fcntl:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            else:
+                msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError:  # BlockingIOError on Unix, PermissionError on Windows
             yield False
             return
         yield True
