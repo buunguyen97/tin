@@ -37,7 +37,8 @@ VOICES = [('Hải Đăng', 'Nam · Bắc · tự nhiên ⭐'), ('Mai Anh', 'Nữ
           ('Kim Thanh', 'Nữ · Nam · đọc truyện')]
 # Cloned voices: a 3–8 s clean sample at voices/<name>.wav makes <name> usable like a preset.
 VOICE_SAMPLES = root / 'voices'
-VOICES += [(p.stem, 'Giọng nhân bản') for p in sorted(VOICE_SAMPLES.glob('*.wav'))]
+CLONED = [p.stem for p in sorted(VOICE_SAMPLES.glob('*.wav'))]  # a sample replaces a preset of the same name
+VOICES = [v for v in VOICES if v[0] not in CLONED] + [(name, 'Giọng nhân bản') for name in CLONED]
 WEEKDAYS = ['THỨ HAI', 'THỨ BA', 'THỨ TƯ', 'THỨ NĂM', 'THỨ SÁU', 'THỨ BẢY', 'CHỦ NHẬT']
 DIGITS = ['không', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín', 'mười']
 
@@ -56,7 +57,7 @@ def slug(value):
 def default_programmes():
     """One round-up of hot stories plus one video per sector. Copy into config.json to customise."""
     progs = [{'id': 'tong-hop', 'title': 'TIN NỔI BẬT TRONG NGÀY', 'filter': {'hot': True}, 'min': 3, 'max': 6,
-              'intro': 'Điểm tin nổi bật', 'intro_hook': 'Những sự kiện đáng chú ý có thể bạn đã bỏ lỡ.',
+              'intro': 'Sự kiện nổi bật', 'intro_hook': 'Những sự kiện đáng chú ý có thể bạn đã bỏ lỡ.',
               'intro_title': ['SỰ KIỆN NỔI BẬT', 'TRONG NGÀY'], 'intro_tagline': 'CÓ THỂ BẠN ĐÃ BỎ LỠ',
               'intro_accent': '#4ADE80'}]
     for sector, accent in zip(SECTORS, SECTOR_ACCENTS):

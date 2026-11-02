@@ -24,7 +24,7 @@ Mỗi ngày repo tạo:
 - **Một video cho mỗi ngành** có ít nhất `min` tin đã duyệt (mặc định 2, tối đa 5 tin). Ngành không đủ tin thì bỏ qua và ghi lý do.
 - **Một video “Tin nổi bật trong ngày”** gồm các tin đánh dấu Hot, sắp theo `Thứ tự hot` (3–6 tin).
 
-Mỗi video mở đầu bằng **màn hình intro có giọng đọc**, ví dụ “Điểm tin nổi bật ngày hai mươi bảy tháng mười…”. Intro gồm nhãn “BẢN TIN | THỨ BA”, tiêu đề lớn, ngày, dòng phụ và dòng thương hiệu. Nền intro ghép 3 ảnh của chính các tin trong video, hoặc dùng ảnh riêng nếu đặt `intro_image`.
+Mỗi video mở đầu bằng **màn hình intro có giọng đọc**, ví dụ “Sự kiện nổi bật hôm nay, ngày hai mươi bảy tháng mười.” Intro gồm nhãn “BẢN TIN | THỨ BA”, tiêu đề lớn, ngày, dòng phụ và dòng thương hiệu. Nền intro ghép 3 ảnh của chính các tin trong video, hoặc dùng ảnh riêng nếu đặt `intro_image`.
 
 Kết quả lưu ở `output/daily/<ngày>/<chương-trình>.mp4`, kèm ảnh tổng hợp các khung và file nguồn tin `-nguon.md`. Dữ liệu trung gian nằm trong `demo/work/<ngày>/`. Ảnh và giọng đọc dùng cache chung trong `demo/assets/`, nên tin xuất hiện ở nhiều video chỉ phải tải ảnh và đọc giọng một lần.
 
@@ -55,9 +55,10 @@ Tác vụ chạy `demo/auto_render.py` mỗi 10 phút trong khung `auto_render.w
   - `filter`: `{"nganh": "Bất động sản"}` cho video ngành, hoặc `{"hot": true}` cho video nổi bật.
   - `min` / `max`: số tin tối thiểu / tối đa.
   - `accent`: màu nhấn của thẻ tin.
-  - Phần intro: `intro` và `intro_hook` (câu đọc), `intro_title` (các dòng tiêu đề lớn), `intro_tagline`, `intro_accent`.
+  - Phần intro: `intro` (câu đọc, chương trình tự thêm “hôm nay, ngày…”), `intro_title` (các dòng tiêu đề lớn), `intro_tagline`, `intro_accent`.
   - `voice` (không bắt buộc): giọng riêng cho video đó, ví dụ `"voice": "Mai Anh"` cho video nổi bật.
 - `voice`: giọng mặc định. Có 25 giọng VieNeu, chọn được trong Studio.
+- `speed`: tốc độ đọc (mặc định 1.25; 1 là tốc độ gốc). Đổi tốc độ thì giọng được đọc lại.
 - `brand`: dòng thương hiệu trên intro.
 - `outro`: câu đọc cuối video (để trống thì không có).
 - `intro_image`: ảnh nền intro dùng chung, đường dẫn tương đối từ `demo/`.

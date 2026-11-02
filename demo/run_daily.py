@@ -113,7 +113,10 @@ def _main(argv=None):
             if step == 'images':
                 run([py, demo / 'fetch_images.py', '--workdir', *dirs])
             elif step == 'prepare':
-                run([vieneu_python(), demo / 'prepare.py', '--provider', 'vieneu', '--voice', args.voice, '--workdir', *dirs])
+                import imageio_ffmpeg  # VieNeu's environment has no ffmpeg; prepare.py needs one to change speed
+                os.environ.setdefault('FFMPEG_BINARY', imageio_ffmpeg.get_ffmpeg_exe())
+                run([vieneu_python(), demo / 'prepare.py', '--provider', 'vieneu', '--voice', args.voice,
+                     '--speed', config.get('speed', 1.0), '--workdir', *dirs])
             elif step == 'render':
                 jobs = [{'props': str(d / 'props-vieneu.json'), 'output': str(out_dir / f'{d.name}.mp4')} for d in dirs]
                 jobs_file = WORK / args.date / 'render-jobs.json'

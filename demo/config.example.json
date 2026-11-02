@@ -4,6 +4,7 @@
   "sheet_gid": 0,
   "service_account_file": "",
   "voice": "Hải Đăng",
+  "speed": 1.25,
   "brand": "TIN TỨC KINH TẾ VIỆT NAM",
   "outro": "",
   "intro_image": "",
@@ -29,7 +30,7 @@
       },
       "min": 3,
       "max": 6,
-      "intro": "Điểm tin nổi bật",
+      "intro": "Sự kiện nổi bật",
       "intro_hook": "Những sự kiện đáng chú ý có thể bạn đã bỏ lỡ.",
       "intro_title": [
         "SỰ KIỆN NỔI BẬT",

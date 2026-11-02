@@ -211,7 +211,7 @@ def plan_programmes(stories, programmes, day, config=None):
         intro = prog.get('intro') or prog['title'].capitalize()
         edition = {'date': day.isoformat(), 'programme': prog['id'], 'title': prog['title'],
                    # Read over the intro card, so a story shared by two videos keeps one cached recording.
-                   'intro': f'{intro} {spoken_date(day.isoformat())}. {prog.get("intro_hook", "")}'.strip(),
+                   'intro': f'{intro} hôm nay, {spoken_date(day.isoformat())}.',
                    'outro': prog.get('outro', config.get('outro', '')),
                    'intro_title': prog.get('intro_title') or [prog['title']],
                    'intro_tagline': prog.get('intro_tagline', ''),

@@ -46,7 +46,7 @@ class SheetTests(unittest.TestCase):
         self.assertIn('1 tin', plans['hang-khong-du-lich'][1])  # below the minimum of 2
         roundup = plans['tong-hop'][0]
         self.assertEqual([s['number'] for s in roundup['stories']], ['230', '16', '129,3%', '25.10', '10'])
-        self.assertEqual(roundup['intro'][:51], 'Điểm tin nổi bật ngày hai mươi bảy tháng mười. Nhữn')
+        self.assertEqual(roundup['intro'], 'Sự kiện nổi bật hôm nay, ngày hai mươi bảy tháng mười.')
         sector = plans['doanh-nghiep'][0]
         self.assertEqual([s['number'] for s in sector['stories']], ['230', '129,3%'])
         self.assertEqual({s['accent'] for s in sector['stories']}, {'#FFA9B6'})  # one colour per sector

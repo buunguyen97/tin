@@ -1,15 +1,18 @@
-import argparse, asyncio, base64, functools, hashlib, json, math, html, time, wave, os
+import argparse, asyncio, base64, functools, hashlib, json, math, html, shutil, subprocess, time, wave, os
 from pathlib import Path
 from tts_audio import audio_duration, cache_path
 from datetime import date as Date
 from edition import load_edition, display_date, WEEKDAYS, VOICE_SAMPLES
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 root=Path(__file__).resolve().parent
 assets=root/'assets'; assets.mkdir(exist_ok=True)
 BASE='http://127.0.0.1:8765'  # render.mjs serves demo/ here
 W,H=1080,1920
 INK,YELLOW='#0B0B0B','#FFD21F'
-FRAME=(44,270,992,570,40)  # photo window on the story card: x, y, width, height, corner radius
+# TikTok covers the top tabs, the caption and music below, and the button rail on the right;
+# text stays inside this box (commonly used safe-zone margins for 1080x1920).
+SAFE={'top':160,'bottom':1440,'left':80,'right':920}
+FRAME=(44,170,992,530,36)  # photo window on the story card: x, y, width, height, corner radius
 def url(path): return f'{BASE}/{Path(path).resolve().relative_to(root).as_posix()}'
 # Be Vietnam Pro (OFL, demo/fonts) is embedded in every card: the player draws cards as <img>,
 # which cannot load outside fonts, and system fonts differ between machines.
@@ -23,11 +26,22 @@ def text(x,y,value,size=40,color='#F6F8FC',weight=400,anchor='start',extra=''):
  return f'<text x="{x}" y="{y}" fill="{color}" font-family="{FAMILY}" font-size="{size}" font-weight="{weight}" text-anchor="{anchor}"{extra}>{html.escape(value)}</text>'
 def rounded(x,y,w,h,r):
  return f'M{x+r} {y}H{x+w-r}A{r} {r} 0 0 1 {x+w} {y+r}V{y+h-r}A{r} {r} 0 0 1 {x+w-r} {y+h}H{x+r}A{r} {r} 0 0 1 {x} {y+h-r}V{y+r}A{r} {r} 0 0 1 {x+r} {y}Z'
-def text_width(value,size,bold=True): return len(value)*size*(.64 if bold else .56)  # Be Vietnam Pro, rough
-def wrap(value,limit):
+@functools.cache
+def _font(size,weight,italic):
+ name={400:'Regular',700:'Bold',800:'ExtraBold',900:'Black'}[weight]+('Italic' if italic else '')
+ return ImageFont.truetype(str(root/'fonts'/f'BeVietnamPro-{name}.ttf'),size)
+def text_width(value,size,weight=700,italic=False):
+ """Advance width in px of `value` set in the embedded Be Vietnam Pro, as the browser lays it out."""
+ return _font(size,weight,italic).getlength(value)
+def fit(value,size,weight,width):
+ """Largest font size up to `size` at which `value` fits `width` px."""
+ return min(size,int(size*width/max(text_width(value,size,weight),1)))
+def wrap(value,limit,size=None,weight=400):
+ """Split into lines of at most `limit` characters, or `limit` px when a font `size` is given."""
+ too_long=(lambda t:text_width(t,size,weight)>limit) if size else (lambda t:len(t)>limit)
  lines=[]; line=''
  for w in value.split():
-  if line and len(line+' '+w)>limit: lines.append(line); line=w
+  if line and too_long(line+' '+w): lines.append(line); line=w
   else: line=(line+' '+w).strip()
  return lines+[line]
 def background(item,photo,out):
@@ -44,37 +58,43 @@ def background(item,photo,out):
   bg=Image.composite(Image.new('RGB',(W,H),YELLOW),bg,glow.filter(ImageFilter.GaussianBlur(110)))
  bg.save(out,quality=90); return out
 def card(edition,item,i,credit):
- """Overlay drawn by the player above the (zooming) background: black page with a yellow-framed
- photo window, category tag, headline, figure box, details and source."""
- x,y,w,h,r=FRAME; window=rounded(x,y,w,h,r)
- s=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">',font_style(),
+ """Overlay drawn by the player above the still background: black page with a yellow-framed
+ photo window, category tag, headline, figure box, details and source. Every text stays in
+ TikTok's safe area (SAFE): clear of the tabs on top, the caption below and the button rail.
+ Spare height above SAFE['bottom'] is shared between the blocks, so short stories don't leave a gap."""
+ x,y,w,h,r=FRAME; window=rounded(x,y,w,h,r); left,right=SAFE['left'],SAFE['right']; width=right-left
+ cat=item['category']; tw=round(text_width(cat,34,800,True)+56); tx,ty,th,sk=left-6,y+h+28,62,18
+ lines=item['title']; size=min(fit(l,68,800,width) for l in lines); num=item['number']
+ def body(gap):
+  s=[f'<path d="M{tx+sk} {ty}H{tx+sk+tw}L{tx+tw} {ty+th}H{tx}Z" fill="{YELLOW}"/>',  # slanted tag + stripe
+     f'<path d="M{tx+tw+12+sk} {ty}h14L{tx+tw+26} {ty+th}h-14Z" fill="{YELLOW}"/>',
+     text(round(tx+sk/2+tw/2),ty+44,cat,34,INK,800,'middle',' font-style="italic"')]
+  if credit and tx+tw+60+text_width(f'Ảnh: {credit}',20,400)<right: s.append(text(right,ty+40,f'Ảnh: {credit}',20,'#8A8A8A',anchor='end'))
+  cy=ty+th+4+gap
+  for line in lines: cy+=round(size*1.18); s.append(text(left,cy,line,size,'#FFFFFF',800))
+  # Figure box: big yellow number | unit, wrapped to at most two lines.
+  bx,by,bw,bh=left-14,cy+36+gap,width+14,160; mid=by+bh//2
+  ns=fit(num,130,800,330); dx=round(bx+44+text_width(num,ns,800)+36); ux=dx+38
+  for us in range(40,26,-2):
+   unit=wrap(item['unit'],bx+bw-30-ux,us)
+   if len(unit)<=2: break
+  s+=[f'<rect x="{bx}" y="{by}" width="{bw}" height="{bh}" rx="26" fill="url(#box)" stroke="{YELLOW}" stroke-width="5"/>',
+      text(bx+44,round(mid+ns*.36),num,ns,YELLOW,800),f'<rect x="{dx}" y="{mid-46}" width="5" height="92" rx="3" fill="{YELLOW}"/>']
+  for j,line in enumerate(unit): s.append(text(ux,round(mid+us*.36+(j-(len(unit)-1)/2)*us*1.25),line,us,'#FFFFFF'))
+  cy=by+bh+6+gap
+  for line in item['detail']: cy+=56; s.append(text(left,cy,line,fit(line,38,700,width),'#FFFFFF',700))
+  if item['note']: cy+=6
+  for line in wrap(item['note'],width,24)[:2]: cy+=34; s.append(text(left,cy,line,24,'#9A9A9A'))
+  ly=cy+42+gap; source=item['source'].split(' • ')[0]
+  s+=[f'<path d="M{left} {ly-3}L{left+320} {ly}L{left} {ly+3}Z" fill="{YELLOW}"/>',
+      f'<text x="{left}" y="{ly+56}" fill="#FFFFFF" font-family="{FAMILY}" font-size="30">Nguồn: <tspan font-weight="700">{html.escape(source)}</tspan></text>']
+  return s,ly+56
+ s,end=body(0)
+ if end<SAFE['bottom']-16: s,end=body(min(40,(SAFE['bottom']-16-end)//4))
+ else: print(f'  CẢNH BÁO: thẻ "{" ".join(lines)}" chạm vùng bị TikTok che phía dưới',flush=True)
+ return ''.join([f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">',font_style(),
     '<defs><linearGradient id="box"><stop stop-color="#161616"/><stop offset="1" stop-color="#2E2710"/></linearGradient></defs>',
-    f'<path d="M0 0H{W}V{H}H0Z{window}" fill="{INK}" fill-rule="evenodd"/>',f'<path d="{window}" fill="none" stroke="{YELLOW}" stroke-width="7"/>']
- if credit: s.append(text(x+w,y+h+38,f'Ảnh: {credit}',20,'#8A8A8A',anchor='end'))
- # Category tag: slanted yellow block plus a thin stripe after it.
- cat=item['category']; tw=round(text_width(cat,40)+70); tx,ty,th,sk=74,y+h+40,74,22
- s+=[f'<path d="M{tx+sk} {ty}H{tx+sk+tw}L{tx+tw} {ty+th}H{tx}Z" fill="{YELLOW}"/>',
-     f'<path d="M{tx+tw+14+sk} {ty}h16L{tx+tw+30} {ty+th}h-16Z" fill="{YELLOW}"/>',
-     text(round(tx+sk/2+tw/2),ty+52,cat,40,INK,800,'middle',' font-style="italic"')]
- lines=item['title']; size=min(76,int(920/text_width(max(lines,key=len),1))); cy=ty+th+18
- for line in lines: cy+=round(size*1.15); s.append(text(86,cy,line,size,'#FFFFFF',700))
- # Figure box: big yellow number | unit, wrapped to at most two lines.
- bx,by,bw,bh=76,cy+50,928,200; mid=by+bh//2; num=item['number']
- ns=min(150,int(380/text_width(num,1))); dx=round(bx+60+text_width(num,ns)+45); ux=dx+45
- for us in range(44,28,-2):
-  unit=wrap(item['unit'],max(1,int((bx+bw-40-ux)/(us*.62))))
-  if len(unit)<=2: break
- s+=[f'<rect x="{bx}" y="{by}" width="{bw}" height="{bh}" rx="30" fill="url(#box)" stroke="{YELLOW}" stroke-width="5"/>',
-     text(bx+60,round(mid+ns*.36),num,ns,YELLOW,800),f'<rect x="{dx}" y="{mid-55}" width="6" height="110" rx="3" fill="{YELLOW}"/>']
- for j,line in enumerate(unit): s.append(text(ux,round(mid+us*.36+(j-(len(unit)-1)/2)*us*1.3),line,us,'#FFFFFF'))
- cy=by+bh+30
- for line in item['detail']: cy+=70; s.append(text(86,cy,line,46,'#FFFFFF',700))
- if item['note']: cy+=12
- for line in wrap(item['note'],60)[:2]: cy+=42; s.append(text(86,cy,line,28,'#9A9A9A'))
- ly=cy+70; source=item['source'].split(' • ')[0]
- s+=[f'<path d="M96 {ly-4}L500 {ly}L96 {ly+4}Z" fill="{YELLOW}"/>',
-     f'<text x="96" y="{ly+75}" fill="#FFFFFF" font-family="{FAMILY}" font-size="32">Nguồn: <tspan font-weight="700">{html.escape(source)}</tspan></text>','</svg>']
- return ''.join(s)
+    f'<path d="M0 0H{W}V{H}H0Z{window}" fill="{INK}" fill-rule="evenodd"/>',f'<path d="{window}" fill="none" stroke="{YELLOW}" stroke-width="6"/>',*s,'</svg>'])
 def spoken(edition,i):
  """What the voice reads for story i; the outro closes the last one."""
  parts=[edition['stories'][i]['script'],edition.get('outro','') if i==len(edition['stories'])-1 else '']
@@ -90,22 +110,47 @@ def intro_frame(edition,photos,out):
   for j,f in enumerate(files): bg.paste(ImageOps.fit(Image.open(f).convert('RGB'),(W,h if j<len(files)-1 else H-h*j),Image.LANCZOS),(0,h*j))
  ImageEnhance.Brightness(bg).enhance(.8).save(out,quality=90); return out
 def intro_card(edition):
- """Title card: 'BẢN TIN | THỨ BA', headline, big date, tagline, brand."""
- a=edition['intro_accent']; y,m,d=edition['date'].split('-'); lines=edition['intro_title']
- size=min(92,int(900/(.76*max(len(l) for l in lines))))
+ """Title card in the story cards' black and yellow: slanted 'BẢN TIN | THỨ BA' tag, headline,
+ big yellow date, tagline, brand. The panel keeps fixed inner padding, and the whole block is
+ centred vertically in TikTok's safe area."""
+ y,m,d=edition['date'].split('-'); lines=edition['intro_title']
+ left,right=SAFE['left'],SAFE['right']; px,py=70,56  # panel inner padding
+ bx,bw=left-20,right-left+40; cx,inner=bx+bw//2,bw-2*px
+ size=min(fit(l,90,900,inner) for l in lines); ds=fit(f'{d}/{m}',180,900,inner)
  head=f'font-family="{FAMILY}" font-weight="900" text-anchor="middle" filter="url(#sh)"'
- s=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">',font_style(),'<defs><filter id="sh" x="-10%" y="-20%" width="120%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity=".7"/></filter><linearGradient id="v" x2="0" y2="1"><stop stop-color="#060D18" stop-opacity=".55"/><stop offset=".35" stop-color="#060D18" stop-opacity=".1"/><stop offset=".7" stop-color="#060D18" stop-opacity=".25"/><stop offset="1" stop-color="#060D18" stop-opacity=".95"/></linearGradient></defs>',f'<rect width="{W}" height="{H}" fill="url(#v)"/>','<rect x="60" y="770" width="960" height="640" rx="36" fill="#060D18" fill-opacity=".5"/>']
- chip=f'BẢN TIN  |  {WEEKDAYS[Date(int(y),int(m),int(d)).weekday()]}'
- s+=[f'<rect x="100" y="680" width="{int(len(chip)*21+70)}" height="72" rx="36" fill="#0B1220" fill-opacity=".85"/>',text(135,728,chip,34,weight=700)]
- cy=840
- for line in lines: cy+=int(size*1.08); s.append(f'<text x="540" y="{cy}" fill="#FFFFFF" font-size="{size}" {head}>{html.escape(line)}</text>')
- cy+=190; s.append(f'<text x="540" y="{cy}" fill="{a}" font-size="180" {head}>{d}/{m}</text>')
- if edition.get('intro_tagline'): cy+=95; s.append(f'<text x="540" y="{cy}" fill="#FFFFFF" font-size="50" {head}>{html.escape(edition["intro_tagline"])}</text>')
- s+=[text(100,1640,edition.get('brand',''),30,'#E2E8F0',700),text(80,1810,f'TỔNG HỢP NGÀY {d}.{m}.{y}',30,'#94A3B8',700),'</svg>']
+ chip=f'BẢN TIN  |  {WEEKDAYS[Date(int(y),int(m),int(d)).weekday()]}'; tw,th,sk=round(text_width(chip,32,800,True)+56),62,18
+ # Lay the block out from y=0, then shift it so it sits in the middle of the safe area.
+ panel=th+28; body=[]; cy=panel+py
+ for j,line in enumerate(lines): cy+=round(size*(.74 if j==0 else 1.14)); body.append(f'<text x="{cx}" y="{cy}" fill="#FFFFFF" font-size="{size}" {head}>{html.escape(line)}</text>')
+ cy+=round(ds*1.02); body.append(f'<text x="{cx}" y="{cy}" fill="{YELLOW}" font-size="{ds}" {head}>{d}/{m}</text>')
+ tag=edition.get('intro_tagline')
+ if tag: ts=fit(tag,48,900,inner); cy+=round(ts*1.7); body.append(f'<text x="{cx}" y="{cy}" fill="#FFFFFF" font-size="{ts}" {head}>{html.escape(tag)}</text>')
+ bottom=cy+py; ly=bottom+70; end=ly+120
+ dy=max(SAFE['top']+20,(SAFE['top']+SAFE['bottom']-end)//2)
+ s=[f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">',font_style(),
+    f'<defs><filter id="sh" x="-10%" y="-20%" width="120%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity=".7"/></filter><linearGradient id="v" x2="0" y2="1"><stop stop-color="{INK}" stop-opacity=".7"/><stop offset=".35" stop-color="{INK}" stop-opacity=".35"/><stop offset=".7" stop-color="{INK}" stop-opacity=".55"/><stop offset="1" stop-color="{INK}" stop-opacity=".97"/></linearGradient></defs>',
+    f'<rect width="{W}" height="{H}" fill="url(#v)"/>',f'<g transform="translate(0 {dy})">',
+    f'<rect x="{bx}" y="{panel}" width="{bw}" height="{bottom-panel}" rx="36" fill="{INK}" fill-opacity=".82" stroke="{YELLOW}" stroke-width="5"/>',
+    f'<path d="M{left+sk} 0H{left+sk+tw}L{left+tw} {th}H{left}Z" fill="{YELLOW}"/>',  # same slanted tag as the story cards
+    f'<path d="M{left+tw+12+sk} 0h14L{left+tw+26} {th}h-14Z" fill="{YELLOW}"/>',
+    text(round(left+sk/2+tw/2),43,chip,32,INK,800,'middle',' font-style="italic"'),*body,
+    f'<path d="M{left} {ly-3}L{left+320} {ly}L{left} {ly+3}Z" fill="{YELLOW}"/>',
+    text(left,ly+62,edition.get('brand',''),32,'#FFFFFF',700),
+    text(left,ly+112,f'TỔNG HỢP NGÀY {d}.{m}.{y}',28,'#B0B0B0',700),'</g></svg>']
  return ''.join(s)
+def speed_up(path,speed):
+ """Read faster without raising the pitch (ffmpeg atempo); run_daily.py passes its ffmpeg in FFMPEG_BINARY."""
+ ffmpeg=os.environ.get('FFMPEG_BINARY') or shutil.which('ffmpeg')
+ if not ffmpeg: raise RuntimeError('Cần ffmpeg để đổi tốc độ đọc: đặt FFMPEG_BINARY hoặc chạy qua run_daily.py')
+ fast=path.with_name(path.stem+'.fast'+path.suffix)
+ subprocess.run([ffmpeg,'-y','-loglevel','error','-i',str(path),'-filter:a',f'atempo={speed}',str(fast)],check=True)
+ fast.replace(path)
 class Voice:
- def __init__(self,provider,voice,threads): self.provider,self.voice,self.threads,self.tts=provider,voice,threads,None
+ def __init__(self,provider,voice,threads,speed=1.0): self.provider,self.voice,self.threads,self.speed,self.tts=provider,voice,threads,speed,None
  async def say(self,script,out,name=None):
+  await self._say(script,out,name)
+  if self.provider=='vieneu' and self.speed!=1: speed_up(Path(out),self.speed)
+ async def _say(self,script,out,name=None):
   name=name or self.voice
   if self.provider=='vieneu':
    if self.tts is None:
@@ -126,7 +171,7 @@ class Voice:
    import edge_tts
    for attempt in range(4):
     try:
-     await edge_tts.Communicate(script,name).save(str(out))
+     await edge_tts.Communicate(script,name,rate=f'{round((self.speed-1)*100):+d}%').save(str(out))
      break
     except edge_tts.exceptions.NoAudioReceived:
      if attempt == 3: raise
@@ -185,11 +230,13 @@ async def main():
  parser.add_argument('--provider', choices=['vieneu','edge'], default='vieneu')
  parser.add_argument('--voice', help='VieNeu preset name or Edge voice ID')
  parser.add_argument('--threads', type=int, default=4, help='VieNeu ONNX CPU threads')
+ parser.add_argument('--speed', type=float, default=1.0, help='Reading speed, e.g. 1.25')
  parser.add_argument('--force', action='store_true', help='Regenerate audio, ignoring the cache')
  parser.add_argument('--workdir', nargs='+', type=Path, help='demo/work/<date>/<programme>/ folders (default: legacy demo/news.json)')
  args=parser.parse_args()
- voice=Voice(args.provider,args.voice or ('Hải Đăng' if args.provider=='vieneu' else 'vi-VN-HoaiMyNeural'),args.threads)
+ voice=Voice(args.provider,args.voice or ('Hải Đăng' if args.provider=='vieneu' else 'vi-VN-HoaiMyNeural'),args.threads,args.speed)
  model='v3turbo-fp32-vieneu-3.8.3' if args.provider=='vieneu' else 'edge-tts'
+ if args.speed!=1: model+=f'-x{args.speed:g}'  # audio at another speed is a different cache entry
  # One process for every video of the day: the VieNeu model loads once.
  for wd in args.workdir or [root]:
   print(f'[{wd.name}]',flush=True)
