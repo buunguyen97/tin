@@ -348,7 +348,7 @@ async def prepare(workdir,legacy,voice,model,force):
   return {'meta':{'title':title,'pubdate':edition['date']+'T06:00:00Z','byline':byline,'id':key,'uniqueId':f'news-{key}','description':script,'audio':{'src':url(audio_file)}},'segments':[{'id':1,'mood':'neutral','type':'text','style':'bottom','texts':[{'type':'text','text':script,'line_id':1,'who':'default','start':0,'end':duration}],'cameraMovement':'none','images':[{'type':'image','imageAsset':{'id':str(key),'size':{'width':W,'height':H}},'url':url(frame)}],'overlay':{'url':url(overlay)},'start':0,'end':duration}]}
  if edition.get('intro_title') and edition.get('intro'):
   audio_file,duration,cached=await record(edition['intro'],'intro',pad=.6)
-  frame=intro_frame(edition,{k:v for k,v in photos.items() if news[int(k)-1].get('image') is not False},out_dir/'intro-frame.jpg')
+  frame=intro_frame(edition,{k:v for k,v in photos.items() if not is_stock(v.get('credit'))} or photos,out_dir/'intro-frame.jpg')
   overlay=out_dir/'intro.svg'; overlay.write_text(intro_card(edition))
   manuscripts.append(manuscript(0,edition['title'],edition.get('brand',''),edition['intro'],audio_file,duration,frame,overlay))
   total+=duration; print(f'  intro: {duration}s{" (giọng có sẵn)" if cached else ""}',flush=True)
@@ -356,7 +356,7 @@ async def prepare(workdir,legacy,voice,model,force):
  for i,item in enumerate(news):
   script=spoken(edition,i)
   audio_file,duration,cached=await record(script,i+1)
-  entry=photos.get(str(i+1)) if item.get('image') is not False else None
+  entry=photos.get(str(i+1))  # fetch_images.py already left out photos that can't be used
   layout=layouts[i%len(layouts)]
   if layout in PHOTO_ONLY and not entry: layout='goc'  # a photo layout without a photo would leave the frame empty
   frame=background(item,assets/entry['file'] if entry else None,out_dir/f'bg-{i+1}-frame.jpg',layout)

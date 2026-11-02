@@ -8,9 +8,13 @@ round-up is downloaded once. Each workdir gets images.json: story number -> cach
 
 With "image_rights": "kiem-tra" in config.json (the default), a photo is used only when its credit
 allows it (image_rights.py): the sheet's "Ảnh nguồn" if the editor filled it in, else the caption
-in the article, cached in demo/assets/credit-<hash>.txt. Other stories get the plain background.
+in the article, cached in demo/assets/credit-<hash>.txt.
+
+A story left without a usable photo (none in the sheet, rights, download failure) gets a CC0 or
+public-domain photo of its sector from demo/stock/<sector>/ (credits in demo/stock/credits.json),
+a different one for each such story of a video. prepare.py tags those "Ảnh minh họa".
 """
-import argparse, hashlib, json, os, re, subprocess, sys, time
+import argparse, hashlib, json, os, re, shutil, subprocess, sys, time
 from html import unescape
 from pathlib import Path
 from urllib.parse import urljoin
@@ -20,6 +24,8 @@ from image_rights import judge, photo_credit
 
 root = Path(__file__).resolve().parent
 assets = root / 'assets'
+stock = root / 'stock'
+STOCK_DEFAULT = 'vi_mo_chinh_sach'  # stories without a sector, or of one without photos
 CONFIG_FILE = Path(os.environ.get('DIEMTIN_CONFIG', root / 'config.json'))
 UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36'
 EXT = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp'}
@@ -107,31 +113,58 @@ def fetch_story_image(story):
             time.sleep(2 * attempt)
 
 
+def stock_photo(story, used):
+    """(cached file name, credit) of a sector photo for `story` not in `used`, or None without any.
+    The pick follows the story URL, so re-rendering a video keeps its photos."""
+    credits = json.loads((stock / 'credits.json').read_text(encoding='utf-8')) if (stock / 'credits.json').exists() else {}
+    files = sorted(stock.glob(f'{story.get("sector", "")}/*.jpg')) or sorted(stock.glob(f'{STOCK_DEFAULT}/*.jpg'))
+    if not files:
+        return None
+    start = int(hashlib.sha1(story['url'].encode()).hexdigest(), 16)
+    for k in range(len(files)):
+        path = files[(start + k) % len(files)]
+        if path not in used or k == len(files) - 1:  # more stories than photos: repeat the last pick
+            break
+    used.add(path)
+    name = f'img-stock-{path.parent.name}-{path.stem}.jpg'
+    if not (assets / name).exists():
+        shutil.copyfile(path, assets / name)
+    (assets / name).touch()  # auto_render.py keeps recently used cache files
+    info = credits.get(f'{path.parent.name}/{path.name}', {})
+    return name, f'Wikimedia Commons ({info.get("license", "CC0")})'
+
+
 def process(workdir, legacy, check_rights=True):
     edition = load_edition(root / 'news.json' if legacy else workdir / 'news.json')
-    manifest, failed = {}, 0
+    manifest, failed, used = {}, 0, set()
     for i, story in enumerate(edition['stories'], 1):
         title = ' '.join(story['title'])
-        if story.get('image') is False:  # article has no relevant photo; prepare.py draws a plain background
-            print(f'  {i}. {title}: không dùng ảnh', flush=True)
-            continue
-        credit = None
-        if check_rights:
+        credit, reason = None, None
+        if story.get('image') is False:  # the sheet says the article has no relevant photo
+            reason = 'bài không có ảnh phù hợp'
+        elif check_rights:
             try:
                 credit = story_credit(story)
-                usable, reason = judge(credit)
+                usable, why = judge(credit)
             except Exception as e:  # unknown owner: not used
-                usable, reason = False, f'không mở được bài để xem nguồn ảnh ({e})'
+                usable, why = False, f'không mở được bài để xem nguồn ảnh ({e})'
             if not usable:
-                print(f'  {i}. {title}: BỎ ẢNH, {reason}; dùng nền không ảnh', flush=True)
+                reason = f'BỎ ẢNH, {why}'
+        if not reason:
+            try:
+                name, cached = fetch_story_image(story)
+                manifest[str(i)] = {'article': story['url'], 'file': name, **({'credit': credit} if credit else {})}
+                print(f'  {i}. {title}: {"có sẵn" if cached else "đã tải"} {name}{f" (ảnh: {credit})" if credit else ""}', flush=True)
                 continue
-        try:
-            name, cached = fetch_story_image(story)
-            manifest[str(i)] = {'article': story['url'], 'file': name, **({'credit': credit} if credit else {})}
-            print(f'  {i}. {title}: {"có sẵn" if cached else "đã tải"} {name}{f" (ảnh: {credit})" if credit else ""}', flush=True)
-        except Exception as e:  # keep going: prepare.py falls back to the plain background
-            failed += 1
-            print(f'CẢNH BÁO: tin "{title}" không tải được ảnh ({e}); dùng nền gradient', flush=True)
+            except Exception as e:
+                failed += 1
+                reason = f'CẢNH BÁO: không tải được ảnh ({e})'
+        picked = stock_photo(story, used)
+        if picked:
+            manifest[str(i)] = {'article': story['url'], 'file': picked[0], 'credit': picked[1]}
+            print(f'  {i}. {title}: {reason}; dùng ảnh minh họa {picked[0]}', flush=True)
+        else:  # prepare.py falls back to the plain background
+            print(f'  {i}. {title}: {reason}; dùng nền không ảnh', flush=True)
     (workdir / 'images.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
     return failed
 

@@ -171,6 +171,7 @@ def approved_stories(records, day, freshness=None):
             'source': rec['nguon'],
             'url': rec['url'],
             'script': rec['kich_ban'],
+            'sector': normalise(rec['nganh']),  # picks the fallback photo (fetch_images.stock_photo)
         }
         image = rec.get('anh_url', '')
         if normalise(image) in NO_IMAGE or image.strip() == '-':

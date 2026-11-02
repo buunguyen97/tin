@@ -90,7 +90,7 @@ def day_view(date):
                              'card': f'/work/{date}/{prog["id"]}/intro.svg{stamp(wd / "intro.svg")}'}
         prog['items'] = []
         for i, s in enumerate(edition['stories'], 1):
-            entry = images.get(str(i)) if s.get('image') is not False else None
+            entry = images.get(str(i))
             prog['items'].append({'title': ' '.join(s['title']), 'number': s['number'], 'unit': s['unit'],
                                   'category': s['category'], 'accent': s['accent'], 'url': s['url'], 'source': s['source'],
                                   'script': s['script'], 'image': f'/assets/{entry["file"]}' if entry else None,

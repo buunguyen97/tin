@@ -166,7 +166,8 @@ Mỗi lần tạo video (Studio, `run_daily.py`, tự render), bước tải ả
 
 - Nguồn ảnh lấy từ cột **Ảnh nguồn** nếu biên tập viên đã điền. Nếu cột trống, máy đọc chú thích ảnh trong bài gốc ("… Ảnh: VGP"). Ảnh đại diện thường là bản cắt từ ảnh đầu bài, khi đó dùng chú thích của ảnh đầu bài. Kết quả lưu ở `assets/credit-<mã>.txt`.
 - **Dùng**: ảnh cơ quan nhà nước (VGP, Quốc hội, Bộ, Sở, UBND, Công an…), ban tổ chức, doanh nghiệp (mã cổ phiếu, tên công ty, “… cung cấp”), thư viện ảnh miễn phí (Unsplash, Pexels, Pixabay, Wikimedia), ảnh tự chụp.
-- **Bỏ**: ảnh phóng viên (tên người, ví dụ “Ngọc Thành”, “HỮU HẠNH”), hãng thông tấn (Reuters, AFP, TTXVN…), báo khác, ảnh AI, ảnh không ghi nguồn hoặc không mở được bài. Tin bị bỏ ảnh dùng bố cục `goc` với nền không ảnh; nhật ký ghi “BỎ ẢNH” kèm lý do.
+- **Bỏ**: ảnh phóng viên (tên người, ví dụ “Ngọc Thành”, “HỮU HẠNH”), hãng thông tấn (Reuters, AFP, TTXVN…), báo khác, ảnh AI, ảnh không ghi nguồn hoặc không mở được bài. Nhật ký ghi “BỎ ẢNH” kèm lý do.
+- **Ảnh dự phòng**: tin bị bỏ ảnh, tin có Ảnh URL “none” hoặc tin tải ảnh lỗi đều lấy một ảnh CC0/public domain cùng ngành trong `stock/<ngành>/`. Nguồn từng ảnh ghi ở `stock/credits.json`. Mỗi tin trong một video nhận một ảnh khác nhau, và tin giữ nguyên ảnh khi render lại. Ảnh này có nhãn nhỏ “Ảnh minh họa” trên khung tin. Muốn thêm ảnh, chép file `.jpg` khổ ngang vào thư mục ngành và ghi nguồn vào `credits.json`.
 - Muốn dùng một ảnh bị bỏ nhầm, điền nguồn đúng vào cột **Ảnh nguồn**, ví dụ “Công an cung cấp”. Muốn thay ảnh, dán link ảnh hợp lệ vào **Ảnh URL** và ghi nguồn của ảnh đó.
 
 Đây là kiểm tra tự động dựa trên chú thích, không thay cho việc xem lại trước khi đăng công khai.
