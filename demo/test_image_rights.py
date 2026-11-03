@@ -8,12 +8,13 @@ class JudgeTest(unittest.TestCase):
         for credit in ['VGP', 'Bộ Công an', 'Công an TP HCM', 'Cổng thông tin điện tử Quốc hội', 'HSG', 'MSB',
                        'AEF 2026', 'VinEnergo', 'Vietravel Airlines', 'BQL vịnh Hạ Long - Yên Tử', 'Công an cung cấp',
                        'thainguyen.gov.vn', 'Unsplash', 'Wikimedia Commons (CC0)',
-                       'Wikimedia Commons (public domain)']:
+                       'Wikimedia Commons (public domain)', 'Obayashi Việt Nam', 'FPT', 'QH', 'PNJ']:
             self.assertTrue(judge(credit)[0], credit)
 
     def test_owned_photos_are_dropped(self):
         for credit in ['', 'Ngọc Thành', 'Trần Thế Bằng', 'HỮU HẠNH', 'HÙNG - TRIỀU', 'L an Hương', 'Reuters',
-                       'AFP', 'TTXVN', 'AI', 'Báo Nhân dân', 'Nhân Dân / Tuyền Vy', 'VTV.vn']:
+                       'AFP', 'TTXVN', 'AI', 'Báo Nhân dân', 'Nhân Dân / Tuyền Vy', 'VTV.vn', 'CTV', 'SĐ',
+                       'N.H', 'Nguyễn Việt Nam']:
             self.assertFalse(judge(credit)[0], credit)
 
 

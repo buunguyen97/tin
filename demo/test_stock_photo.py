@@ -11,7 +11,7 @@ class StockPhotoTest(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp())
         self.stock, self.assets = tmp / 'stock', tmp / 'assets'
         self.assets.mkdir()
-        for sector, n in [('phap_luat', 3), ('vi_mo_chinh_sach', 1)]:
+        for sector, n in [('phap_luat', 3), ('vi_mo_chinh_sach', 1), ('vang', 1)]:
             (self.stock / sector).mkdir(parents=True)
             for k in range(1, n + 1):
                 (self.stock / sector / f'{k:02d}.jpg').write_bytes(b'jpg')
@@ -20,8 +20,8 @@ class StockPhotoTest(unittest.TestCase):
         for p in patches:
             p.start(); self.addCleanup(p.stop)
 
-    def story(self, k, sector='phap_luat'):
-        return {'url': f'https://example.vn/tin-{k}', 'sector': sector}
+    def story(self, k, sector='phap_luat', title=('Tin',)):
+        return {'url': f'https://example.vn/tin-{k}', 'sector': sector, 'title': list(title)}
 
     def test_stories_of_a_video_get_different_photos(self):
         used = set()
@@ -38,6 +38,13 @@ class StockPhotoTest(unittest.TestCase):
 
     def test_unknown_sector_uses_the_default(self):
         self.assertEqual(stock_photo(self.story(1, 'khac'), set())[0], 'img-stock-vi_mo_chinh_sach-01.jpg')
+
+    def test_topic_photo_before_sector_photo(self):
+        used = set()
+        gold = self.story(1, 'tai_chinh_ngan_hang', ['Giá vàng', 'tăng mạnh'])
+        self.assertEqual(stock_photo(gold, used)[0], 'img-stock-vang-01.jpg')
+        # The only gold photo is taken: the next gold story gets one of its sector.
+        self.assertTrue(stock_photo(self.story(2, 'phap_luat', ['Vàng', 'giả']), used)[0].startswith('img-stock-phap_luat-'))
 
     def test_more_stories_than_photos_still_get_one(self):
         used = set()

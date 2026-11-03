@@ -31,6 +31,10 @@ STOCK = re.compile(r'wikimedia|unsplash|pexels|pixabay|openverse', re.I)
 # A word of a person's name: "Ngọc", "L", in capitals with Vietnamese marks ("HỮU"), or a short
 # lowercase piece of a name split by the page ("L an Hương"). Tickers and brands are plain ASCII
 # capitals ("HSG") or mixed case ("VinEnergo").
+# A contributor ("CTV") or a reporter's initials ("SĐ", "N.H"); tickers are plain ASCII ("HSG").
+REPORTER_TAG = re.compile(r'^(?i:ctv|pv|nhóm pv)$|^(?=\S*[À-Ỹ])[A-ZÀ-Ỹ](?:\.?[A-ZÀ-Ỹ]){1,2}\.?$|^[A-Z](?:\.[A-Z]){1,2}\.?$')
+# A foreign company's Vietnamese arm ("Obayashi Việt Nam"), not a person named "... Việt Nam".
+COMPANY_VN = re.compile(r'^[A-Z][A-Za-z&.]+(?: [A-Z][A-Za-z&.]+)* (?:Việt Nam|Vietnam)$')
 WORD = re.compile(r'^(?:[A-ZÀ-Ỹ][a-zà-ỹ]*|[A-ZÀ-Ỹ]*[À-Ỹ][A-ZÀ-Ỹ]*|[a-zà-ỹ]{1,3})$')
 
 
@@ -73,6 +77,10 @@ def judge(credit):
     if AGENCIES.search(credit):
         return False, f'ảnh của {credit}'
     if OFFICIAL.search(credit):
+        return True, f'ảnh {credit}'
+    if REPORTER_TAG.match(credit):
+        return False, f'ảnh phóng viên {credit}'
+    if COMPANY_VN.search(credit):
         return True, f'ảnh {credit}'
     words = credit.replace('-', ' ').replace(',', ' ').split()  # "HÙNG - TRIỀU": two reporters
     if 2 <= len(words) <= 6 and all(WORD.match(w) for w in words):

@@ -39,7 +39,8 @@ BƯỚC 3 — CHẤM ĐIỂM NÓNG cho từng tin ứng viên:
 
 BƯỚC 4 — CHỌN TIN:
 - Mỗi ngành 3–5 tin (ít nhất 2 nếu có, để ngành đó đủ một video), ưu tiên điểm nóng cao; Thứ tự 1 = tin nóng nhất của ngành. Ngành nào không có tin từ MỐC trở về sau thì bỏ ngành đó; KHÔNG lấy tin cũ cho đủ số.
-- Tin Hot: 5–6 tin có điểm nóng cao nhất cả ngày, Thứ tự hot theo điểm. Tin Hot phải có ít nhất một tín hiệu: nằm trong Tin nổi bật / Xem nhiều, khớp Google Trends, hoặc từ 2 báo cùng đưa. Các tin còn lại Hot = FALSE.
+- Tin Hot: 5–6 tin có điểm nóng cao nhất cả ngày, Thứ tự hot theo điểm. Tin Hot phải có ít nhất một tín hiệu: nằm trong Tin nổi bật / Xem nhiều, khớp Google Trends, hoặc từ 2 báo cùng đưa. Tin Pháp luật (vụ án lớn, lừa đảo, tham nhũng) thường được xem nhiều nhất: nếu có, đưa ít nhất 2 tin Pháp luật vào tin Hot. Các tin còn lại Hot = FALSE.
+- CHẠY LẠI TRONG NGÀY: nếu tab "Tin" đã có tin của hôm nay, chỉ thêm tin mới. Tin Hot mới có Thứ tự hot nối tiếp số lớn nhất đã có của hôm nay; Thứ tự trong ngành cũng nối tiếp số đã có của ngành đó.
 - Đọc tab "Tin" trước và bỏ mọi tin có URL hoặc nội dung đã có trong Sheet (bất kỳ ngày nào).
 - MỞ TỪNG BÀI GỐC để kiểm chứng số liệu, giờ đăng, lấy og:image và chú thích nguồn ảnh (cột S) trước khi ghi.
 - ẢNH THAY THẾ: nếu ảnh của bài KHÔNG dùng được (nguồn ảnh là tên phóng viên, hãng thông tấn hay báo khác, ảnh AI, hoặc bài không ghi nguồn ảnh), tìm một ảnh minh họa đúng chủ đề trên Wikimedia Commons, chỉ lấy ảnh CC0 hoặc public domain. Tìm bằng từ khóa TIẾNG ANH, ưu tiên có "Vietnam", "Hanoi", "Ho Chi Minh City":

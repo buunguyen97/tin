@@ -11,8 +11,9 @@ allows it (image_rights.py): the sheet's "Ảnh nguồn" if the editor filled it
 in the article, cached in demo/assets/credit-<hash>.txt.
 
 A story left without a usable photo (none in the sheet, rights, download failure) gets a CC0 or
-public-domain photo of its sector from demo/stock/<sector>/ (credits in demo/stock/credits.json),
-a different one for each such story of a video. prepare.py tags those "Ảnh minh họa".
+public-domain photo of its topic (STOCK_TOPICS: gold, police, court, bank) or else of its sector from
+demo/stock/<folder>/ (credits in demo/stock/credits.json), a different one for each such story
+of a video. prepare.py tags those "Ảnh minh họa".
 """
 import argparse, hashlib, json, os, re, shutil, subprocess, sys, time
 from html import unescape
@@ -26,6 +27,11 @@ root = Path(__file__).resolve().parent
 assets = root / 'assets'
 stock = root / 'stock'
 STOCK_DEFAULT = 'vi_mo_chinh_sach'  # stories without a sector, or of one without photos
+# A topic photo fits better than a sector one: gold bars for a gold price story, not a laptop.
+STOCK_TOPICS = [('vang', re.compile(r'\bvàng\b', re.I)),
+                ('canh_sat', re.compile(r'trốn trại|trại giam|phạm nhân|truy nã|bắt giữ|tạm giam|khởi tố|công an|cảnh sát', re.I)),
+                ('phap_luat', re.compile(r'xét xử|hầu tòa|tòa án|bị cáo|truy tố|bản án|tham ô', re.I)),
+                ('tai_chinh_ngan_hang', re.compile(r'ngân hàng|tiết kiệm', re.I))]
 CONFIG_FILE = Path(os.environ.get('DIEMTIN_CONFIG', root / 'config.json'))
 UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36'
 EXT = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp'}
@@ -113,11 +119,21 @@ def fetch_story_image(story):
             time.sleep(2 * attempt)
 
 
+def stock_files(story, used):
+    """Library photos for `story`: of its topic while one is still unused, else of its sector."""
+    text = ' '.join([*story.get('title', []), story.get('category', '')])
+    for folder, pattern in STOCK_TOPICS:
+        files = sorted(stock.glob(f'{folder}/*.jpg'))
+        if pattern.search(text) and set(files) - used:
+            return files
+    return sorted(stock.glob(f'{story.get("sector", "")}/*.jpg')) or sorted(stock.glob(f'{STOCK_DEFAULT}/*.jpg'))
+
+
 def stock_photo(story, used):
-    """(cached file name, credit) of a sector photo for `story` not in `used`, or None without any.
-    The pick follows the story URL, so re-rendering a video keeps its photos."""
+    """(cached file name, credit) of a topic or sector photo for `story` not in `used`, or None
+    without any. The pick follows the story URL, so re-rendering a video keeps its photos."""
     credits = json.loads((stock / 'credits.json').read_text(encoding='utf-8')) if (stock / 'credits.json').exists() else {}
-    files = sorted(stock.glob(f'{story.get("sector", "")}/*.jpg')) or sorted(stock.glob(f'{STOCK_DEFAULT}/*.jpg'))
+    files = stock_files(story, used)
     if not files:
         return None
     start = int(hashlib.sha1(story['url'].encode()).hexdigest(), 16)
