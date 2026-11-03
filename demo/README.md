@@ -164,6 +164,56 @@ node demo/render.mjs
 .venv-demo/bin/python demo/verify.py
 ```
 
+## Đăng lại video (reup) qua Telegram
+
+Gửi link video (X, TikTok, YouTube, Facebook…) cho bot Telegram. Máy tải video, Claude xem các khung hình và viết tiêu đề, kịch bản và caption, rồi bot gửi kịch bản cho bạn duyệt. Bấm **Làm video**: VieNeu đọc giọng, máy render khung dọc 1080×1920 và bot gửi file MP4 lại trong Telegram.
+
+- Bố cục: nhãn vàng, tiêu đề lớn và dòng nguồn ở trên; video gốc trong khung viền vàng, nền là chính video đó phóng to làm mờ; phụ đề chạy theo từng câu đang đọc.
+- Phần cuối video chỉ có logo, không tiếng (thường gặp ở bài của các trang tin), tự bị cắt bỏ.
+- Giọng đọc dài hơn video một chút thì video chậm lại cho khớp. Dài hơn nhiều thì phát chậm lại đoạn ồn nhất (ví dụ tiếng nổ), rồi dừng ở khung cuối. Tiếng gốc vặn nhỏ dưới giọng đọc.
+- Đang xem kịch bản thì nhắn một câu để yêu cầu sửa, ví dụ "ngắn lại", "tiêu đề giật hơn". Nút **Viết lại** cho một bản khác hẳn.
+- Claude chạy bằng lệnh `claude -p` với gói Claude đang đăng nhập, không dùng API key. Claude chỉ được đọc file, không được sửa hay chạy lệnh trên máy.
+- Kịch bản chỉ dựa vào khung hình và chữ trong bài đăng. Kiểm tra thông tin và quyền dùng video trước khi đăng công khai.
+
+### Cài đặt (một lần)
+
+1. Thêm `yt-dlp` vào môi trường demo: `uv pip install --python .venv-demo -r demo/requirements-demo.txt`.
+2. Tạo bot với @BotFather trên Telegram (`/newbot`), ghi token vào `.env`: `TELEGRAM_BOT_TOKEN=...`.
+3. Cho bot một hồ sơ Claude Code riêng, đăng nhập bằng tài khoản Claude: thêm `CLAUDE_CONFIG_DIR=%USERPROFILE%\.claude-reup` vào `.env`, rồi chạy một lần trong PowerShell, gõ `/login`, chọn tài khoản Claude, xong gõ `/exit`:
+
+   ```powershell
+   $env:CLAUDE_CONFIG_DIR = "$HOME\.claude-reup"; claude
+   ```
+
+   Hồ sơ riêng giúp bot không bị ảnh hưởng bởi cài đặt chung trong `~/.claude/settings.json` (ví dụ `apiKeyHelper` hay `ANTHROPIC_BASE_URL` của dịch vụ khác). Cách khác: `claude setup-token`, rồi ghi token vào `.env` thành `CLAUDE_CODE_OAUTH_TOKEN=...`.
+4. Chạy bot nền, tự bật lại khi đăng nhập Windows (gỡ: thêm `-Uninstall`):
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File demo\windows\install-bot.ps1
+   ```
+
+5. Mở bot trên Telegram và gửi `/start`. Chat đầu tiên gửi `/start` thành chủ bot.
+
+### Cho người khác dùng
+
+- Người khác (tài khoản Telegram khác, máy nào cũng được) tìm bot và gửi `/start`. Chủ bot nhận tin "… muốn dùng bot" kèm nút **Cho phép** / **Từ chối**. Chưa được cho phép thì bot bỏ qua mọi tin nhắn của người đó.
+- Dùng chung trong nhóm: thêm bot vào nhóm Telegram, gửi `/start` trong nhóm, chủ bot cho phép. Để bot đọc được link gửi thường trong nhóm, tắt chế độ riêng tư một lần: @BotFather → `/setprivacy` → chọn bot → **Disable** (rồi xoá bot khỏi nhóm và thêm lại).
+- Chủ bot gõ `/ds` để xem danh sách, `/xoa <id>` để bỏ quyền một người hay một nhóm. Danh sách lưu ở `TELEGRAM_CHAT_ID` trong `.env` (các id cách nhau dấu phẩy, id đầu là chủ).
+- Mỗi người nhận kịch bản và video trong chat của mình. Máy làm lần lượt từng video, người gửi sau thấy số việc đang chờ.
+
+Nhật ký ở `output/telegram-bot.log`. Video ở `output/reup/`, dữ liệu trung gian ở `demo/work/reup/<mã>/`. Bot làm từng việc một, và chờ nếu máy đang làm video điểm tin hằng ngày.
+
+Tuỳ chỉnh trong mục `reup` của `demo/config.json` (không bắt buộc): `voice`, `speed` (mặc định lấy theo video điểm tin), `original_volume` (mặc định 0.25), `label` (mặc định "TIN NÓNG").
+
+### Chạy bằng dòng lệnh
+
+```powershell
+.venv-demo\Scripts\python.exe demo\reup.py all <link>                  # tải, viết kịch bản, render
+.venv-demo\Scripts\python.exe demo\reup.py script <mã> --note "ngắn lại"
+.venv-demo\Scripts\python.exe demo\reup.py build <mã>                  # sau khi sửa tay script.json
+.venv-demo\Scripts\python.exe demo\reup.py render <mã>
+```
+
 ## Nền ảnh tin tức (chỉ dùng nội bộ)
 
 `fetch_images.py` tải `og:image` của từng bài báo về `assets/bg-N.*`, ghi lại trong `images.json`. Ảnh thuộc bản quyền của báo gốc, nên video chỉ dùng nội bộ và không đăng công khai.
