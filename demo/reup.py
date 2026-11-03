@@ -25,6 +25,9 @@ OUTPUT = project / 'output' / 'reup'
 FPS = 25
 LEAD, GAP, TAIL = .3, .25, .8  # seconds of silence before, between and after the sentences
 SYLLABLES_PER_SECOND = 5  # VieNeu at speed 1.25, gaps included
+NARRATION_SECONDS = 60  # a longer clip plays on under its own sound after the voice
+MAX_SENTENCE = 25  # syllables: about five seconds, three subtitle lines
+SCRIPT_ATTEMPTS = 3  # Claude's first answer and up to two corrections
 MAX_SECONDS = 90
 
 
@@ -168,7 +171,8 @@ Video dùng {clip_end:.1f} giây đầu (phần sau là màn hình logo nếu c�
 Viết kịch bản theo các quy tắc:
 - Chỉ nói điều thấy trong video hoặc nói trong bài đăng. Không bịa tên, số liệu, thương vong. Điều chỉ bài đăng khẳng định
   thì ghi rõ nguồn ("theo ..."). Dùng từ trung tính thay cho từ ngữ thiên kiến của bài gốc.
-- 3 đến 5 câu, tổng khoảng {syllables} tiếng (âm tiết), không quá {most} tiếng. Câu đầu là câu dẫn hấp dẫn.
+- {fewest} đến {most_sentences} câu, mỗi câu không quá {max_sentence} tiếng (âm tiết); tổng khoảng {syllables} tiếng, không quá {most} tiếng.
+  Câu đầu là câu dẫn hấp dẫn.
   Thứ tự các câu theo diễn biến trong video, để lời đọc khớp hình.
 - Câu cuối nhắc nguồn: video do ai đăng, trên mạng nào.
 - Câu đọc chỉ dùng chữ: số viết bằng chữ ("hai mươi người"), không viết tắt, không ký hiệu, từ nước ngoài
@@ -189,18 +193,9 @@ def claude_bin():
     return found
 
 
-def write_script(wd, note=None):
-    """Ask Claude Code, signed in with the Claude plan, for script.json. With `note`, revise the current one."""
-    info = json.loads((wd / 'info.json').read_text()); analysis = json.loads((wd / 'analysis.json').read_text())
-    seconds = max(analysis['clip_end'], 10)
-    revision = ''
-    if note and (wd / 'script.json').exists():
-        current = {k: v for k, v in json.loads((wd / 'script.json').read_text()).items() if k in ('label', 'title', 'sentences', 'source', 'caption')}
-        revision = f'\nĐây là bản hiện tại:\n{json.dumps(current, ensure_ascii=False)}\nBiên tập viên yêu cầu sửa: "{note}". Sửa theo yêu cầu, giữ nguyên các quy tắc trên.\n'
-    prompt = PROMPT.format(uploader=info.get('uploader') or info.get('channel') or '', description=(info.get('description') or info.get('title') or '').strip(),
-                           url=info['url'], clip_end=analysis['clip_end'], peak=analysis['peak'], frames=(wd / 'frames.jpg').as_posix(),
-                           syllables=round(seconds * SYLLABLES_PER_SECOND), most=round(seconds * SYLLABLES_PER_SECOND * 1.15), revision=revision)
-    # Only Read is allowed: Claude looks at the frames and answers; this script writes the file.
+def ask_claude(prompt, wd):
+    """One `claude -p` answer, as the JSON object in it. Only Read is allowed: Claude looks at the frames
+    and answers; this script writes the file."""
     # A clean environment: started from inside a Claude Code session, the child would inherit that
     # session's connection settings instead of the plan this machine is signed in with.
     # CLAUDE_CONFIG_DIR in .env: a Claude Code profile of its own, signed in to the Claude plan, so the
@@ -221,9 +216,58 @@ def write_script(wd, note=None):
     found = re.search(r'\{.*\}', answer.get('result', ''), re.S)
     if not found:
         raise RuntimeError(f"Claude không trả về JSON: {answer.get('result', '')[:500]}")
-    script = json.loads(found[0])
-    if not script.get('sentences') or not script.get('title'):
-        raise RuntimeError('Kịch bản thiếu tiêu đề hoặc câu đọc')
+    return json.loads(found[0])
+
+
+def problems(script, most):
+    """What breaks the rules in a script, in words Claude is asked to fix; empty when it is fine."""
+    found = []
+    sentences = script.get('sentences') or []
+    if not sentences or not script.get('title'):
+        return ['Kịch bản thiếu tiêu đề hoặc câu đọc.']
+    for i, sentence in enumerate(sentences):
+        n = len(sentence.split())
+        if n > MAX_SENTENCE:
+            found.append(f'Câu {i + 1} dài {n} tiếng, quá {MAX_SENTENCE} tiếng: tách thành nhiều câu ngắn hoặc bỏ bớt chi tiết.')
+        if re.search(r'\d', sentence):
+            found.append(f'Câu {i + 1} còn chữ số: viết số bằng chữ.')
+    total = sum(len(s.split()) for s in sentences)
+    if total > most:
+        found.append(f'Tổng {total} tiếng, quá {most} tiếng: rút gọn.')
+    titles = [script['title']] if isinstance(script['title'], str) else script['title']
+    if len(titles) > 2 or any(len(t) > 30 for t in titles):
+        found.append('Tiêu đề phải có 1 hoặc 2 dòng, mỗi dòng không quá 24 ký tự.')
+    return found
+
+
+def write_script(wd, note=None):
+    """Ask Claude Code, signed in with the Claude plan, for script.json. With `note`, revise the current one.
+    An answer that breaks the length rules goes back to Claude with what is wrong, at most twice."""
+    info = json.loads((wd / 'info.json').read_text()); analysis = json.loads((wd / 'analysis.json').read_text())
+    seconds = min(max(analysis['clip_end'], 10), NARRATION_SECONDS)
+    syllables = round(seconds * SYLLABLES_PER_SECOND); most = round(syllables * 1.15)
+    base = PROMPT.format(uploader=info.get('uploader') or info.get('channel') or '', description=(info.get('description') or info.get('title') or '').strip(),
+                         url=info['url'], clip_end=analysis['clip_end'], peak=analysis['peak'], frames=(wd / 'frames.jpg').as_posix(),
+                         syllables=syllables, most=most, max_sentence=MAX_SENTENCE,
+                         fewest=max(3, math.ceil(syllables / MAX_SENTENCE)), most_sentences=max(5, math.ceil(syllables / 15)), revision='{revision}')
+    current = None
+    if note and (wd / 'script.json').exists():
+        current = json.loads((wd / 'script.json').read_text())
+    for attempt in range(SCRIPT_ATTEMPTS):
+        revision = ''
+        if current is not None:
+            draft = {k: v for k, v in current.items() if k in ('label', 'title', 'sentences', 'source', 'caption')}
+            revision = f'\nĐây là bản hiện tại:\n{json.dumps(draft, ensure_ascii=False)}\nCần sửa: "{note}". Sửa theo yêu cầu, giữ nguyên các quy tắc trên.\n'
+        script = ask_claude(base.replace('{revision}', revision), wd)
+        wrong = problems(script, most)
+        if not wrong:
+            break
+        print(f'  kịch bản chưa đạt (lần {attempt + 1}): {" ".join(wrong)}', flush=True)
+        current, note = script, ' '.join(wrong)
+    else:
+        if not script.get('sentences') or not script.get('title'):
+            raise RuntimeError('Kịch bản thiếu tiêu đề hoặc câu đọc')
+        script['warning'] = ' '.join(wrong)  # shown to the editor with the script
     script['title'] = [script['title']] if isinstance(script['title'], str) else script['title'][:2]
     script.setdefault('label', settings()['label']); script.setdefault('source', info.get('uploader') or '')
     script.setdefault('caption', '')
@@ -238,6 +282,8 @@ def script_text(script):
     lines += ['', f"Nguồn: {script['source']}"]
     if script.get('caption'):
         lines += ['', f"Caption: {script['caption']}"]
+    if script.get('warning'):
+        lines += ['', f"⚠️ Claude chưa sửa hết: {script['warning']}"]
     return '\n'.join(lines)
 
 
