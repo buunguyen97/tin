@@ -133,7 +133,7 @@ Tác vụ chạy `demo/auto_render.py` mỗi 10 phút trong khung `auto_render.w
 - `speed`: tốc độ đọc (mặc định 1.25; 1 là tốc độ gốc). Đổi tốc độ thì giọng được đọc lại.
 - `layouts`: bố cục thẻ tin (mặc định `["goc", "anh-tran-tren", "anh-tran-vien", "the-kem", "phu-de"]`). Mỗi video xáo trộn danh sách này một lần, rồi dùng lần lượt cho từng tin, nên hai tin liền nhau không trùng bố cục. Thứ tự xáo trộn cố định theo ngày và tên video, nên tạo lại video vẫn giữ nguyên bố cục. Đặt ở cấp ngoài cùng cho mọi video, hoặc trong một chương trình chỉ cho video đó. Tin không có ảnh thì không dùng các bố cục ảnh tràn (`anh-tran-tren`, `anh-tran-vien`, `phu-de`) mà chuyển về `goc`.
   - `phu-de`: ảnh ở giữa khung, hai dải đen trên dưới, tiêu đề chữ trắng viền đen kiểu phụ đề (font Barlow Condensed), dòng nguồn nhỏ bên dưới. Không có ô số liệu.
-- `brand`: dòng thương hiệu trên intro.
+- `brand`: dòng thương hiệu trên intro; một chương trình có thể đặt `brand` riêng (ví dụ video Pháp luật).
 - `outro`: câu đọc cuối video (để trống thì không có).
 - `intro_image`: ảnh nền intro dùng chung, đường dẫn tương đối từ `demo/`.
 - `image_rights`: `"kiem-tra"` (mặc định) chỉ dùng ảnh được phép, xem [Kiểm tra nguồn ảnh](#kiểm-tra-nguồn-ảnh); `"tat"` dùng mọi ảnh như trước (chỉ cho video nội bộ).

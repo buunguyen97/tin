@@ -217,7 +217,7 @@ def plan_programmes(stories, programmes, day, config=None):
                    'intro_title': prog.get('intro_title') or [prog['title']],
                    'intro_tagline': prog.get('intro_tagline', ''),
                    'intro_accent': prog.get('intro_accent') or prog.get('accent') or '#4ADE80',
-                   'brand': config.get('brand', 'TIN TỨC KINH TẾ VIỆT NAM'),
+                   'brand': prog.get('brand') or config.get('brand', 'TIN TỨC KINH TẾ VIỆT NAM'),
                    'stories': edition_stories}
         if prog.get('voice'):  # otherwise the voice chosen in Studio / --voice
             edition['voice'] = prog['voice']
