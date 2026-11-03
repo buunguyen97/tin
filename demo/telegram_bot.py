@@ -192,13 +192,24 @@ class Bot:
             self.status(note, '⏳ Máy đang làm video điểm tin hằng ngày. Sẽ thử lại sau 1 phút.')
             threading.Timer(RETRY_BUSY, self.jobs.put, args=(('make', chat, wd),)).start()
             return
-        script = json.loads((wd / 'script.json').read_text())
-        with open(video, 'rb') as f:
-            self.call('sendVideo', chat_id=chat, files={'video': (video.name, f, 'video/mp4')}, wait=600,
-                      caption=(script.get('caption') or ' '.join(script['title']))[:1024], supports_streaming=True, width=1080, height=1920)
+        self.send_video(chat, wd, video)
         self.status(note, f'✅ Xong: {video.name}')
         if self.current.get(chat) == wd:
             del self.current[chat]
+
+    def send_video(self, chat, wd, video):
+        script = json.loads((wd / 'script.json').read_text())
+        video = reup.smaller_copy(video)  # over Telegram's 50 MB, a compressed copy goes instead
+        # Uploads from a home line can be slow (about 170 KB/s here) and drop: allow for 30 KB/s, try three times.
+        wait = 120 + video.stat().st_size // 30_000
+        for attempt in range(3):
+            try:
+                with open(video, 'rb') as f:
+                    return self.call('sendVideo', chat_id=chat, files={'video': (video.name, f, 'video/mp4')}, wait=wait,
+                                     caption=(script.get('caption') or ' '.join(script['title']))[:1024], supports_streaming=True, width=1080, height=1920)
+            except requests.RequestException as e:
+                log(f'sendVideo attempt {attempt + 1} failed:', e)
+        raise RuntimeError(f'Không gửi được video qua Telegram (mạng chậm hoặc bị ngắt). File nằm trên máy: {video}')
 
     def work(self):
         while True:

@@ -452,6 +452,21 @@ def render(wd):
     return out
 
 
+def smaller_copy(video, limit_mb=48):
+    """A copy that fits `limit_mb` (Telegram bots send at most 50 MB), or the video itself if it already does.
+    The bitrate is set from the duration; the full-quality file stays in output/reup/."""
+    if video.stat().st_size <= limit_mb * 1024 * 1024:
+        return video
+    out = video.with_name(video.stem + '-nho.mp4')
+    if out.exists() and out.stat().st_mtime > video.stat().st_mtime:
+        return out
+    audio_kbps = 128
+    video_kbps = int(limit_mb * 8192 * .95 / probe_duration(video)) - audio_kbps
+    ff('-i', video, '-c:v', 'libx264', '-preset', 'medium', '-b:v', f'{video_kbps}k', '-maxrate', f'{video_kbps}k', '-bufsize', f'{2 * video_kbps}k',
+       '-c:a', 'aac', '-b:a', f'{audio_kbps}k', '-movflags', '+faststart', out)
+    return out
+
+
 def produce(wd):
     """build + render under the lock shared with the daily videos (both use port 8765 and the VieNeu model)."""
     with pipeline_lock() as acquired:
