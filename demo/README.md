@@ -168,7 +168,9 @@ node demo/render.mjs
 
 Gửi link video (X, TikTok, YouTube, Facebook…) cho bot Telegram. Máy tải video, Claude xem các khung hình và viết tiêu đề, kịch bản và caption, rồi bot gửi kịch bản cho bạn duyệt. Bấm **Làm video**: VieNeu đọc giọng, máy render khung dọc 1080×1920 và bot gửi file MP4 lại trong Telegram.
 
-- Bố cục: nhãn vàng, tiêu đề lớn và dòng nguồn ở trên; video gốc trong khung viền vàng, nền là chính video đó phóng to làm mờ; phụ đề chạy theo từng câu đang đọc.
+- Bố cục: nhãn vàng, tiêu đề lớn và dòng nguồn ở trên; video gốc trong khung viền vàng, nền là chính video đó phóng to làm mờ.
+- Phụ đề kiểu TikTok: mỗi lần một dòng chữ to (2–5 tiếng), trắng viền đen, đổi theo giọng đọc; câu mở đầu màu vàng. Claude chia cụm phụ đề cùng lúc viết kịch bản (không tách đôi từ ghép); nếu bạn sửa tay `script.json` khiến cụm không còn khớp câu, máy tự chia lại. Phụ đề được ghi thẳng vào video (`subtitles.ass`, libass).
+- Video gốc có viền đen suốt clip (video ngang đăng thành dọc) thì viền được cắt bỏ trước khi dựng.
 - Phần cuối video chỉ có logo, không tiếng (thường gặp ở bài của các trang tin), tự bị cắt bỏ.
 - Giọng đọc dài hơn video một chút thì video chậm lại cho khớp. Dài hơn nhiều thì phát chậm lại đoạn ồn nhất (ví dụ tiếng nổ), rồi dừng ở khung cuối. Tiếng gốc vặn nhỏ dưới giọng đọc.
 - Đang xem kịch bản thì nhắn một câu để yêu cầu sửa, ví dụ "ngắn lại", "tiêu đề giật hơn". Nút **Viết lại** cho một bản khác hẳn.

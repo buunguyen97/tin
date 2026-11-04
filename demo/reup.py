@@ -11,7 +11,7 @@
   .venv-demo/Scripts/python.exe demo/reup.py render <id>
 
 Files in demo/work/reup/<id>/: source.mp4, info.json, analysis.json, frames.jpg, script.json,
-voice.wav, audio.wav, background.mp4, sub-N.svg, props.json.
+voice.wav, audio.wav, subtitles.ass, background.mp4, overlay.svg, props.json.
 """
 import argparse, asyncio, hashlib, html, json, math, os, re, shutil, subprocess, sys, wave
 from pathlib import Path
@@ -24,9 +24,10 @@ REUP = WORK / 'reup'
 OUTPUT = project / 'output' / 'reup'
 FPS = 25
 LEAD, GAP, TAIL = .3, .25, .8  # seconds of silence before, between and after the sentences
+SPREAD = 1.25  # most seconds added to each gap when the footage is longer than the voice
 SYLLABLES_PER_SECOND = 5  # VieNeu at speed 1.25, gaps included
 NARRATION_SECONDS = 60  # a longer clip plays on under its own sound after the voice
-MAX_SENTENCE = 25  # syllables: about five seconds, three subtitle lines
+MAX_SENTENCE = 25  # syllables: about five seconds of voice
 SCRIPT_ATTEMPTS = 3  # Claude's first answer and up to two corrections
 MAX_SECONDS = 90
 
@@ -38,8 +39,8 @@ def ffmpeg():
     return imageio_ffmpeg.get_ffmpeg_exe()
 
 
-def ff(*args):
-    subprocess.run([ffmpeg(), '-y', '-loglevel', 'error', *map(str, args)], check=True)
+def ff(*args, cwd=None):
+    subprocess.run([ffmpeg(), '-y', '-loglevel', 'error', *map(str, args)], check=True, cwd=cwd)
 
 
 def ff_log(*args):
@@ -95,6 +96,16 @@ def loudest(src, end):
     return -max(levels)[1] if levels else end / 3  # the earliest of equally loud moments
 
 
+def black_bars(src, end, width, height):
+    """[w, h, x, y] of the picture inside black bars burned into the file (a landscape clip posted as a
+    portrait video, say), or None when there are none worth cutting."""
+    found = re.findall(r'crop=(\d+):(\d+):(\d+):(\d+)', ff_log('-t', end, '-i', src, '-vf', 'fps=2,cropdetect=limit=24:round=2:reset=0'))
+    if not found:
+        return None
+    w, h, x, y = map(int, found[-1])  # reset=0: the last line covers every frame seen
+    return [w, h, x, y] if w * h < .9 * width * height and w > width / 3 and h > height / 3 else None
+
+
 def contact_sheet(src, end, out, count=12):
     """Frames across the footage, each labelled with its time, for Claude to look at."""
     from PIL import Image, ImageDraw, ImageFont
@@ -139,8 +150,11 @@ def fetch(url):
     end = min(footage_end(src, duration), MAX_SECONDS)
     peak = loudest(src, end)
     width, height = probe_size(src)
+    crop = black_bars(src, end, width, height)
+    if crop:
+        width, height = crop[:2]
     analysis = {'duration': duration, 'clip_end': end, 'peak': round(peak, 2),
-                'replay': [round(max(0, peak - 1.2), 2), round(min(end, peak + 1.6), 2)], 'width': width, 'height': height}
+                'replay': [round(max(0, peak - 1.2), 2), round(min(end, peak + 1.6), 2)], 'width': width, 'height': height, 'crop': crop}
     (wd / 'analysis.json').write_text(json.dumps(analysis, indent=2))
     contact_sheet(src, end, wd / 'frames.jpg')
     return wd
@@ -180,9 +194,12 @@ Viết kịch bản theo các quy tắc:
 - Tiêu đề: 1 hoặc 2 dòng VIẾT HOA, mỗi dòng không quá 24 ký tự, gây tò mò nhưng đúng sự thật.
 - Nhãn: 1 đến 3 từ VIẾT HOA (ví dụ TIN NÓNG, TIN QUỐC TẾ, CLIP HOT).
 - Caption để đăng TikTok: 1 đến 2 câu, kèm 3 đến 5 hashtag tiếng Việt không dấu.
+- Phụ đề: chia mỗi câu thành các cụm từ 3 đến 5 tiếng, không quá 20 ký tự, hiện lần lượt trên màn hình. Ngắt ở chỗ tự nhiên
+  (sau dấu câu, trước "của", "và", "đang"…), không tách đôi một từ ("máy bay", "người đàn ông", "tuần hành" nằm gọn trong một cụm).
+  Ghép các cụm của một câu lại phải đúng nguyên câu đó, giữ cả dấu câu.
 {revision}
 Chỉ trả về đúng một khối JSON, không giải thích:
-{{"label": "...", "title": ["...", "..."], "sentences": ["...", "..."], "source": "<tên tài khoản> / <tên mạng>", "caption": "..."}}
+{{"label": "...", "title": ["...", "..."], "sentences": ["...", "..."], "subtitles": [["cụm", "cụm", "..."], ["..."]], "source": "<tên tài khoản> / <tên mạng>", "caption": "..."}}
 """
 
 
@@ -256,7 +273,7 @@ def write_script(wd, note=None):
     for attempt in range(SCRIPT_ATTEMPTS):
         revision = ''
         if current is not None:
-            draft = {k: v for k, v in current.items() if k in ('label', 'title', 'sentences', 'source', 'caption')}
+            draft = {k: v for k, v in current.items() if k in ('label', 'title', 'sentences', 'subtitles', 'source', 'caption')}
             revision = f'\nĐây là bản hiện tại:\n{json.dumps(draft, ensure_ascii=False)}\nCần sửa: "{note}". Sửa theo yêu cầu, giữ nguyên các quy tắc trên.\n'
         script = ask_claude(base.replace('{revision}', revision), wd)
         wrong = problems(script, most)
@@ -332,11 +349,19 @@ async def voice_lines(sentences, conf):
     return files
 
 
-def join_voice(files, out):
-    """The sentences on the frame grid with short silences between; returns [(start, end)] and the voice length."""
+def join_voice(files, out, fill=0):
+    """The sentences on the frame grid with silences between; returns [(start, end)] and the voice length.
+    The silences grow (by up to SPREAD each) for the voice to run along `fill` seconds of footage, so the
+    last sentences still fall on the shots they describe."""
     with wave.open(str(files[0])) as w0:
         params = w0.getparams()
     rate, step = params.framerate, params.sampwidth * params.nchannels
+    lengths = []
+    for f in files:
+        with wave.open(str(f)) as w:
+            lengths.append(w.getnframes() / rate)
+    spoken = LEAD + sum(lengths) + GAP * (len(files) - 1) + TAIL
+    gap = GAP + (min(SPREAD, (fill - spoken) / (len(files) - 1)) if len(files) > 1 and fill > spoken else 0)
     data = bytearray(); times = []; pos = frames(LEAD)
     pad = lambda: data.extend(b'\0' * max(0, round(pos / FPS * rate) * step - len(data)))
     pad()
@@ -344,7 +369,7 @@ def join_voice(files, out):
         with wave.open(str(f)) as w:
             pcm = w.readframes(w.getnframes())
         start = pos; data.extend(pcm); end = start + frames(len(pcm) / step / rate)
-        times.append((start / FPS, end / FPS)); pos = end + frames(GAP); pad()
+        times.append((start / FPS, end / FPS)); pos = end + frames(gap); pad()
     pos = frames(times[-1][1] + TAIL); pad()
     with wave.open(str(out), 'wb') as w:
         w.setparams(params); w.writeframes(bytes(data))
@@ -359,15 +384,19 @@ def timeline(analysis, voice):
     return total, stretch, replay
 
 
-def compose_video(src, analysis, total, stretch, replay, out):
+def compose_video(src, analysis, total, stretch, replay, subtitles, out):
+    """The clip over a blurred copy of itself, with the subtitles burned in (libass, the project's fonts)."""
     from prepare import W, H
     x, y, w, h = box(analysis['width'], analysis['height']); end = analysis['clip_end']; a, b = analysis['replay']
-    graph = f'[0:v]trim=0:{end},setpts={stretch:.4f}*(PTS-STARTPTS)[a];'
-    graph += f'[0:v]trim={a}:{b},setpts=2*(PTS-STARTPTS)[r];[a][r]concat=n=2:v=1,' if replay else '[a]'
+    cut = 'crop={}:{}:{}:{},'.format(*analysis['crop']) if analysis.get('crop') else ''  # black bars of the original
+    graph = f'[0:v]{cut}trim=0:{end},setpts={stretch:.4f}*(PTS-STARTPTS)[a];'
+    graph += f'[0:v]{cut}trim={a}:{b},setpts=2*(PTS-STARTPTS)[r];[a][r]concat=n=2:v=1,' if replay else '[a]'
+    fonts = os.path.relpath(demo / 'fonts', subtitles.parent).replace('\\', '/')  # relative: a drive letter's colon breaks the filter
     graph += (f'fps={FPS},tpad=stop_mode=clone:stop_duration={MAX_SECONDS},trim=0:{total},split[v1][v2];'
               f'[v1]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},boxblur=40:3,eq=brightness=-0.28[bg];'
-              f'[v2]scale={w}:{h}:flags=lanczos,setsar=1[fg];[bg][fg]overlay={x}:{y}[v]')
-    ff('-i', src, '-filter_complex', graph, '-map', '[v]', '-an', '-c:v', 'libx264', '-crf', '17', '-pix_fmt', 'yuv420p', out)
+              f'[v2]scale={w}:{h}:flags=lanczos,setsar=1[fg];[bg][fg]overlay={x}:{y},ass={subtitles.name}:fontsdir={fonts}[v]')
+    ff('-i', src.resolve(), '-filter_complex', graph, '-map', '[v]', '-an', '-c:v', 'libx264', '-crf', '17', '-pix_fmt', 'yuv420p', out.resolve(),
+       cwd=subtitles.parent)
 
 
 def mix_audio(src, voice, analysis, total, stretch, volume, out):
@@ -381,33 +410,130 @@ def mix_audio(src, voice, analysis, total, stretch, volume, out):
        '-map', '[m]', '-ar', 48000, '-ac', 2, out)
 
 
-def overlay(script, sentence, clip):
-    """Title, tag and source above the clip, a yellow frame round it, the sentence as a subtitle."""
-    from prepare import W, H, INK, YELLOW, FAMILY, CONDENSED, font_style, condensed_style, text, fit, text_width, _wrap_condensed
+# Subtitles as on TikTok news clips: one big line of a few words at a time, white with a black outline,
+# following the voice. One line: a second one would often break a compound word ("tuần | hành").
+SUB_SIZE, SUB_WIDTH, SUB_WORDS = 86, 900, 5  # px of Be Vietnam Pro ExtraBold, clear of TikTok's button rail; words at once
+PUNCTUATION = re.compile(r'[,;:.!?…]$')
+
+
+def fits(words):
+    from prepare import text_width
+    return len(words) <= SUB_WORDS and text_width(' '.join(words), SUB_SIZE, 800) <= SUB_WIDTH
+
+
+# Words a Vietnamese phrase starts with: a cut before one of them seldom splits a compound word.
+BREAK_BEFORE = set('''và của trong khi đã đang sẽ được bị cho với từ ở tại nơi như là có những các một mà thì rồi nhưng
+    theo trên dưới giữa sau trước về để vì do nên nếu khiến cùng còn vẫn đều cũng vừa tới đến'''.split())
+
+
+def chunks(sentence):
+    """The sentence as lists of words shown together. The cheapest cuts, by a small dynamic programme: after
+    punctuation, else before a function word; few pieces, none of one or two words, none running over a comma."""
+    words = sentence.split(); m = len(words)
+    marked = lambda i: i == m or bool(PUNCTUATION.search(words[i - 1]))
+    cut_cost = lambda i: 0 if marked(i) else 1 if words[i].lower() in BREAK_BEFORE else 5
+    best = [(0, [])] + [None] * m  # best[i]: (cost, cut points) covering words[:i]
+    for i in range(1, m + 1):
+        for j in range(max(0, i - SUB_WORDS), i):
+            if best[j] is None or (i - j > 1 and not fits(words[j:i])):
+                continue
+            inside = sum(marked(k) for k in range(j + 1, i))  # punctuation in the middle of the piece
+            cost = best[j][0] + 1 + cut_cost(i) + 3 * inside + (2 if i - j < 3 and m >= 3 else 0)
+            if best[i] is None or cost < best[i][0]:
+                best[i] = (cost, best[j][1] + [j])
+    cuts = best[m][1] + [m]
+    return [words[a:b] for a, b in zip(cuts, cuts[1:])]
+
+
+def inner_pauses(wav):
+    """Middles of the pauses inside a spoken sentence, in seconds from its start."""
+    log = ff_log('-i', wav, '-af', 'silencedetect=n=-35dB:d=0.12')
+    starts = [float(t) for t in re.findall(r'silence_start: ([\d.]+)', log)]
+    ends = [float(t) for t in re.findall(r'silence_end: ([\d.]+)', log)]
+    return [(a + b) / 2 for a, b in zip(starts, ends) if a > .05]  # a silence running to the end has no silence_end
+
+
+def pieces_of(sentence, given):
+    """Claude's subtitle pieces for the sentence when they add up to it, any too wide cut again; else chunks()."""
+    given = [p.split() for p in given or [] if isinstance(p, str) and p.split()]
+    if [w for p in given for w in p] != sentence.split():  # missing, or the sentence was edited since
+        return chunks(sentence)
+    pieces = []
+    for p in given:
+        if pieces and len(p) < 3 and not PUNCTUATION.search(pieces[-1][-1]) and fits(pieces[-1] + p):
+            pieces[-1] = pieces[-1] + p  # two words alone flash by in a third of a second
+        else:
+            pieces.append(p)
+    return [q for p in pieces for q in ([p] if fits(p) else chunks(' '.join(p)))]
+
+
+def cues(sentences, times, files, subtitles=None):
+    """(start, end, words) for every piece of every sentence. A piece gets time in proportion to its words
+    (a Vietnamese word is one syllable); when the pauses VieNeu leaves match the punctuation, they pin the
+    pieces that end there."""
+    out = []; subtitles = subtitles if isinstance(subtitles, list) else []
+    for k, (sentence, (start, end), f) in enumerate(zip(sentences, times, files)):
+        pieces = pieces_of(sentence, subtitles[k] if k < len(subtitles) else None); weights = [len(p) for p in pieces]
+        anchors = {0: start, len(pieces): end}
+        marks = [i + 1 for i, p in enumerate(pieces[:-1]) if PUNCTUATION.search(p[-1])]
+        pauses = inner_pauses(f)
+        if marks and len(pauses) == len(marks):
+            anchors.update({i: start + t for i, t in zip(marks, pauses)})
+        keys = sorted(anchors); bounds = {}
+        for a, b in zip(keys, keys[1:]):
+            for i in range(a, b + 1):
+                bounds[i] = anchors[a] + (anchors[b] - anchors[a]) * sum(weights[a:i]) / sum(weights[a:b])
+        following = min(times[k + 1][0] if k + 1 < len(times) else end + TAIL, end + .6)  # off during a long pause
+        for i, p in enumerate(pieces):
+            out.append((bounds[i], following if i == len(pieces) - 1 else bounds[i + 1], p, k))
+    return out
+
+
+def write_subtitles(cue_list, clip, out):
+    """An ASS file for libass: under a landscape clip when there is room, else at the foot of the clip, clear of
+    TikTok's caption. The opening sentence, the hook, is yellow."""
+    x, y, w, h = clip
+    align, at = (8, y + h + 50) if 1440 - (y + h) >= 260 else (2, 1400)
+    stamp = lambda t: f'{int(t // 3600)}:{int(t % 3600 // 60):02d}:{t % 60:05.2f}'
+    lines = ['[Script Info]', 'ScriptType: v4.00+', 'PlayResX: 1080', 'PlayResY: 1920', 'WrapStyle: 2', 'ScaledBorderAndShadow: yes', '',
+             '[V4+ Styles]',
+             'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, '
+             'ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
+             f'Style: Sub,Be Vietnam Pro,{SUB_SIZE},&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,800,0,0,0,100,100,0,0,1,8,3,{align},60,60,0,1', '',
+             '[Events]', 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text']
+    for start, end, words, k in cue_list:
+        text = ' '.join(words).replace('{', '(').replace('}', ')')
+        colour = '\\c&H1FD2FF&' if k == 0 else ''  # YELLOW, as BGR
+        lines.append(f'Dialogue: 0,{stamp(start)},{stamp(end)},Sub,,0,0,0,,{{\\pos(540,{at}){colour}\\fscx88\\fscy88\\t(0,90,\\fscx100\\fscy100)}}{text}')
+    out.write_text('\n'.join(lines) + '\n', encoding='utf8')
+
+
+def plain(value):
+    """Without emoji (a flag in an account name shows as two letters in the fonts used)."""
+    return re.sub(r'\s+', ' ', re.sub(r'[\U0001F000-\U0001FFFF☀-➿️‍]', '', value)).strip()
+
+
+def overlay(script, clip):
+    """Title, tag and source above the clip and a yellow frame round it; the subtitles are in the video."""
+    from prepare import W, H, INK, YELLOW, FAMILY, font_style, text, fit, text_width
     x, y, w, h = clip; left = 80; top = 160
-    lines = script['title']; size = min(fit(l, 70, 900, 920) for l in lines)
-    chip = script['label']; tw, th, sk = round(text_width(chip, 30, 800, True) + 56), 54, 16
-    s = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">', font_style(), condensed_style(),
+    lines = [plain(l) for l in script['title']]; size = min(fit(l, 70, 900, 920) for l in lines)
+    chip = plain(script['label']); tw, th, sk = round(text_width(chip, 30, 800, True) + 56), 54, 16
+    source = f'Nguồn: {plain(script["source"])}'
+    s = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">', font_style(),
          '<defs><filter id="sh" x="-10%" y="-20%" width="120%" height="140%"><feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#000" flood-opacity=".8"/></filter>'
          f'<linearGradient id="top" x2="0" y2="1"><stop stop-color="{INK}" stop-opacity=".95"/><stop offset=".8" stop-color="{INK}" stop-opacity=".8"/><stop offset="1" stop-color="{INK}" stop-opacity="0"/></linearGradient></defs>',
          f'<rect width="{W}" height="{y + 10}" fill="url(#top)"/>',
          f'<path d="M{left + sk} {top}H{left + sk + tw}L{left + tw} {top + th}H{left}Z" fill="{YELLOW}"/>',  # slanted tag, as on the intro card
          text(round(left + sk / 2 + tw / 2), top + 38, chip, 30, INK, 800, 'middle', ' font-style="italic"'),
          # the source on the tag's row, clear of the original's own logo at the top of the clip
-         text(1000, top + 38, f'Nguồn: {script["source"]}', fit(f'Nguồn: {script["source"]}', 26, 700, 1000 - left - tw - 40), '#FFFFFF', 700, 'end', ' fill-opacity=".9"')]
+         text(1000, top + 38, source, fit(source, 26, 700, 1000 - left - tw - 40), '#FFFFFF', 700, 'end', ' fill-opacity=".9"')]
     cy = top + th + 12
     for line in lines:
         cy += round(size * 1.08)
         s.append(f'<text x="{left}" y="{cy}" fill="#FFFFFF" font-family="{FAMILY}" font-size="{size}" font-weight="900" filter="url(#sh)">{html.escape(line)}</text>')
     if w < W:
         s.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="none" stroke="{YELLOW}" stroke-width="5"/>')
-    ss = 64
-    while len(sub := _wrap_condensed(sentence, 780, ss)) > 3:
-        ss -= 4
-    lh = round(ss * 1.18); base = 1400 - (len(sub) - 1) * lh  # ends above TikTok's caption area
-    outline = f'font-family="{CONDENSED}" font-weight="700" fill="#FFFFFF" stroke="#000000" stroke-linejoin="round" paint-order="stroke" text-anchor="middle"'
-    for j, line in enumerate(sub):
-        s.append(f'<text x="{W // 2}" y="{base + j * lh}" font-size="{ss}" stroke-width="{round(ss * .2)}" {outline}>{html.escape(line)}</text>')
     return ''.join(s + ['</svg>'])
 
 
@@ -416,27 +542,24 @@ def _build(wd):
     script = json.loads((wd / 'script.json').read_text()); analysis = json.loads((wd / 'analysis.json').read_text())
     conf = settings(); src = wd / 'source.mp4'
     files = asyncio.run(voice_lines(script['sentences'], conf))
-    times, voice = join_voice(files, wd / 'voice.wav')
+    times, voice = join_voice(files, wd / 'voice.wav', min(analysis['clip_end'], NARRATION_SECONDS + 15))
     total, stretch, replay = timeline(analysis, voice)
     print(f'  giọng {voice:.2f}s, video gốc {analysis["clip_end"]}s -> {total:.2f}s', flush=True)
-    compose_video(src, analysis, total, stretch, replay, wd / 'background.mp4')
+    clip = box(analysis['width'], analysis['height'])
+    write_subtitles(cues(script['sentences'], times, files, script.get('subtitles')), clip, wd / 'subtitles.ass')
+    compose_video(src, analysis, total, stretch, replay, wd / 'subtitles.ass', wd / 'background.mp4')
     mix_audio(src, wd / 'voice.wav', analysis, total, stretch, conf['original_volume'], wd / 'audio.wav')
-    clip = box(analysis['width'], analysis['height']); segments = []
     for old in wd.glob('sub-*.svg'):
         old.unlink()
-    for i, (sentence, (start, _)) in enumerate(zip(script['sentences'], times)):
-        seg_start = 0 if i == 0 else start
-        seg_end = times[i + 1][0] if i + 1 < len(times) else total
-        sub = wd / f'sub-{i + 1}.svg'; sub.write_text(overlay(script, sentence, clip))
-        segments.append({'id': i + 1, 'mood': 'neutral', 'type': 'text', 'style': 'bottom',
-                         'texts': [{'type': 'text', 'text': sentence, 'line_id': i + 1, 'who': 'default', 'start': seg_start, 'end': seg_end}],
-                         'cameraMovement': 'none',
-                         'images': [{'type': 'video', 'url': url(wd / 'background.mp4'), 'startFrom': seg_start, 'endAt': seg_end,
-                                     'videoAsset': {'id': wd.name, 'title': ' '.join(script['title']), 'duration': total * 1000, 'streamUrls': {}}}],
-                         'overlay': {'url': url(sub)}, 'start': seg_start, 'end': seg_end})
+    (wd / 'overlay.svg').write_text(overlay(script, clip))
+    texts = [{'type': 'text', 'text': s, 'line_id': i + 1, 'who': 'default', 'start': a, 'end': b} for i, (s, (a, b)) in enumerate(zip(script['sentences'], times))]
+    segment = {'id': 1, 'mood': 'neutral', 'type': 'text', 'style': 'bottom', 'texts': texts, 'cameraMovement': 'none',
+               'images': [{'type': 'video', 'url': url(wd / 'background.mp4'), 'startFrom': 0, 'endAt': total,
+                           'videoAsset': {'id': wd.name, 'title': ' '.join(script['title']), 'duration': total * 1000, 'streamUrls': {}}}],
+               'overlay': {'url': url(wd / 'overlay.svg')}, 'start': 0, 'end': total}
     manuscript = {'meta': {'title': ' '.join(script['title']), 'pubdate': '2026-01-01T00:00:00Z', 'byline': script['source'], 'id': 1,
                            'uniqueId': f'reup-{wd.name}', 'description': ' '.join(script['sentences']), 'audio': {'src': url(wd / 'audio.wav')}},
-                  'segments': segments}
+                  'segments': [segment]}
     props = {'manuscripts': [manuscript], 'width': W, 'height': H, 'voice': True, 'backgroundMusic': False, 'disabledLogo': True,
              'playerConfig': {'assetBaseUrl': BASE, 'logo': 'unused.svg', 'defaultCameraMovements': ['none'],
                               'styles': {'all': {'captions': {'container': 'display:none;'}, 'progress': {'active': 'display:none;', 'inactive': 'display:none;'}}}}}
