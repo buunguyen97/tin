@@ -180,6 +180,12 @@ def approved_stories(records, day, freshness=None):
             story['image'] = image
         if rec.get('anh_nguon'):
             story['image_credit'] = rec['anh_nguon']
+        if rec.get('tu_khoa_anh', '').strip():  # English words for a free stand-in photo (fetch_images.commons_photo)
+            story['image_query'] = rec['tu_khoa_anh'].strip()
+        video = rec.get('video_url', '').strip()
+        if video.startswith('http'):  # a free-licence clip (fetch_images.fetch_story_clip)
+            story['video'] = video
+            story['video_credit'] = rec.get('video_nguon', '')
         if published:
             story['published'] = published.strftime('%Y-%m-%d %H:%M')
         stories.append({'story': story, 'row': n, 'sector': normalise(rec['nganh']), 'sector_label': rec['nganh'],

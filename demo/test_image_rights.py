@@ -1,6 +1,6 @@
 import unittest
 
-from image_rights import judge, photo_credit
+from image_rights import judge, photo_credit, video_allowed
 
 
 class JudgeTest(unittest.TestCase):
@@ -8,14 +8,23 @@ class JudgeTest(unittest.TestCase):
         for credit in ['VGP', 'Bộ Công an', 'Công an TP HCM', 'Cổng thông tin điện tử Quốc hội', 'HSG', 'MSB',
                        'AEF 2026', 'VinEnergo', 'Vietravel Airlines', 'BQL vịnh Hạ Long - Yên Tử', 'Công an cung cấp',
                        'thainguyen.gov.vn', 'Unsplash', 'Wikimedia Commons (CC0)',
-                       'Wikimedia Commons (public domain)', 'Obayashi Việt Nam', 'FPT', 'QH', 'PNJ']:
+                       'Wikimedia Commons (public domain)', 'Obayashi Việt Nam', 'FPT', 'QH', 'PNJ',
+                       'White House', 'Kremlin.ru', 'President.gov.ua', 'GOV.UK', 'European Commission', 'NASA']:
             self.assertTrue(judge(credit)[0], credit)
 
     def test_owned_photos_are_dropped(self):
         for credit in ['', 'Ngọc Thành', 'Trần Thế Bằng', 'HỮU HẠNH', 'HÙNG - TRIỀU', 'L an Hương', 'Reuters',
                        'AFP', 'TTXVN', 'AI', 'Báo Nhân dân', 'Nhân Dân / Tuyền Vy', 'VTV.vn', 'CTV', 'SĐ',
-                       'N.H', 'Nguyễn Việt Nam']:
+                       'N.H', 'Nguyễn Việt Nam', 'Reuters/White House', 'AP Photo']:
             self.assertFalse(judge(credit)[0], credit)
+
+
+class VideoTest(unittest.TestCase):
+    def test_only_free_footage(self):
+        for credit in ['Wikimedia Commons (CC0)', 'Wikimedia Commons (public domain)', 'NASA']:
+            self.assertTrue(video_allowed(credit)[0], credit)
+        for credit in ['', 'Reuters', 'AP', 'BBC', 'CNN', 'Bộ Công an', 'VTV']:
+            self.assertFalse(video_allowed(credit)[0], credit)
 
 
 class PhotoCreditTest(unittest.TestCase):

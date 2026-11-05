@@ -3,7 +3,8 @@ from pathlib import Path
 from tts_audio import audio_duration, cache_path
 from datetime import date as Date
 from edition import load_edition, display_date, WEEKDAYS, VOICE_SAMPLES
-from image_rights import is_stock
+from image_rights import is_stock, shows_credit
+from reup import ff
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 root=Path(__file__).resolve().parent
 assets=root/'assets'; assets.mkdir(exist_ok=True)
@@ -91,6 +92,24 @@ def background(item,photo,out,layout='goc'):
   glow=Image.new('L',(W,H),0); ImageDraw.Draw(glow).ellipse((x+150,y+80,x+w-150,y+h-80),fill=120)
   bg=Image.composite(Image.new('RGB',(W,H),YELLOW),bg,glow.filter(ImageFilter.GaussianBlur(110)))
  bg.save(out,quality=90); return out
+def photo_area(layout):
+ """x, y, width, height of the part of the frame where `layout` shows the story's photo."""
+ if layout=='phu-de': return 0,BAND[0],W,BAND[1]-BAND[0]
+ if layout in BLEEDS: return 0,0,W,BLEEDS[layout]['height']
+ return WINDOWS[layout][:4]
+def video_background(layout,clip,duration,out):
+ """1080x1920 MP4 of `duration` s laid out like background(): the clip, looped and cropped to fill the
+ photo area, black elsewhere, and the same fade into black on full-bleed layouts."""
+ x,y,w,h=photo_area(layout); mask=out.with_suffix('.png'); m=Image.new('RGBA',(W,H),(0,0,0,0))
+ if layout in BLEEDS:
+  start,length=BLEEDS[layout]['fade']
+  fade=Image.new('L',(1,h)); fade.putdata([round(255*min(1,max(0,(j-start)/length))**1.3) for j in range(h)])
+  m.paste(Image.new('RGBA',(W,h),INK),(0,0),fade.resize((W,h)))
+ m.save(mask)
+ ff('-f','lavfi','-i',f'color=c={INK.replace("#","0x")}:s={W}x{H}:r=25:d={duration}','-stream_loop','-1','-i',clip,'-i',mask,
+    '-filter_complex',f'[1:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},setsar=1,fps=25[v];[0:v][v]overlay={x}:{y}:shortest=1[a];[a][2:v]overlay=0:0[o]',
+    '-map','[o]','-t',duration,'-an','-c:v','libx264','-preset','veryfast','-crf','20','-pix_fmt','yuv420p','-movflags','+faststart',out)
+ return out
 def ascent(size,weight):
  """Baseline offset below the top of a line, so blocks can be placed by their top edge."""
  return _font(size,weight,False).getmetrics()[0]
@@ -206,19 +225,20 @@ def _card_subtitle(item,size):
  name=item['source'].split(' • ')[0]; end=y-lh+135
  s.append(f'<text x="{right-100}" y="{end}" font-size="36" stroke-width="7" text-anchor="end" {outline}>Nguồn: {html.escape(name)}</text>')
  return s,end
-def stock_tag(layout):
- """'Ảnh minh họa' pill on a library photo, so it isn't taken for a photo of the event: bottom-left
- in a window, top-left on full-width photos."""
- size,pad,h=18,10,28; label='Ảnh minh họa'; w=round(text_width(label,size,400))+2*pad
+def stock_tag(layout,label='Ảnh minh họa'):
+ """'Ảnh minh họa' (or 'Video minh họa') pill on a library photo, so it isn't taken for a picture of the
+ event: bottom-left in a window, top-left on full-width photos."""
+ size,pad,h=18,10,28; w=round(text_width(label,size,400))+2*pad
  if layout in WINDOWS: x,y,_,wh,_=WINDOWS[layout]; x,top=max(x+20,SAFE['left']),y+wh-16-h
  else: x,top=SAFE['left'],max(BAND[0] if layout=='phu-de' else 0,SAFE['top'])+16
  return [f'<rect x="{x}" y="{top}" width="{w}" height="{h}" rx="{h//2}" fill="#000000" fill-opacity=".45"/>',
          text(x+pad,top+20,label,size,'#FFFFFF',400,extra=' fill-opacity=".9"')]
 CARDS={'goc':(_card_goc,62),'anh-tran-tren':(_card_photo_top,70),'anh-tran-vien':(_card_photo_bleed,64),'the-kem':(_card_cream,68),'phu-de':(_card_subtitle,54)}
-def card(edition,item,i,layout='goc',stock=False):
+def card(edition,item,i,layout='goc',stock=False,clip=False,credit=None):
  """Overlay drawn by the player above the still background, in one of LAYOUTS. Every text stays in
  TikTok's safe area (SAFE): clear of the tabs on top, the caption below and the button rail; a
- story too long for it gets a smaller headline. `stock`: the photo is a library stand-in."""
+ story too long for it gets a smaller headline. `stock`: the photo (or with `clip`, the video) is a
+ library stand-in. `credit`: an owner the card must name ('Ảnh: Kremlin.ru')."""
  build,size=CARDS[layout]
  for size in range(size,size-20,-4):
   s,end=build(item,size)
@@ -230,7 +250,8 @@ def card(edition,item,i,layout='goc',stock=False):
  if layout in WINDOWS:
   x,y,w,h,r=WINDOWS[layout]; window=rounded(x,y,w,h,r)
   head+=[f'<path d="M0 0H{W}V{H}H0Z{window}" fill="{INK}" fill-rule="evenodd"/>',f'<path d="{window}" fill="none" stroke="{YELLOW}" stroke-width="{6 if layout=="goc" else 5}"/>']
- if stock: s+=stock_tag(layout)
+ if stock: s+=stock_tag(layout,'Video minh họa' if clip else 'Ảnh minh họa')
+ elif credit: s+=stock_tag(layout,f'Ảnh: {credit}')
  return ''.join(head+s+['</svg>'])
 def shuffled_layouts(edition):
  """The layouts in a random order, one after another so a video doesn't repeat one look. Seeded by
@@ -345,8 +366,10 @@ async def prepare(workdir,legacy,voice,model,force):
   duration=math.ceil((audio_duration(audio_file)+pad)*25)/25
   timings.append({'story':label,'audio':audio_file.name,'cached':cached,'generation_seconds':round(time.monotonic()-started,2),'video_seconds':duration})
   return audio_file,duration,cached
- def manuscript(key,title,byline,script,audio_file,duration,frame,overlay):
-  return {'meta':{'title':title,'pubdate':edition['date']+'T06:00:00Z','byline':byline,'id':key,'uniqueId':f'news-{key}','description':script,'audio':{'src':url(audio_file)}},'segments':[{'id':1,'mood':'neutral','type':'text','style':'bottom','texts':[{'type':'text','text':script,'line_id':1,'who':'default','start':0,'end':duration}],'cameraMovement':'none','images':[{'type':'image','imageAsset':{'id':str(key),'size':{'width':W,'height':H}},'url':url(frame)}],'overlay':{'url':url(overlay)},'start':0,'end':duration}]}
+ def manuscript(key,title,byline,script,audio_file,duration,frame,overlay,video=None):
+  shown=({'type':'video','url':url(video),'startFrom':0,'endAt':duration,'videoAsset':{'id':str(key),'title':title,'duration':duration*1000,'streamUrls':{}}} if video
+         else {'type':'image','imageAsset':{'id':str(key),'size':{'width':W,'height':H}},'url':url(frame)})
+  return {'meta':{'title':title,'pubdate':edition['date']+'T06:00:00Z','byline':byline,'id':key,'uniqueId':f'news-{key}','description':script,'audio':{'src':url(audio_file)}},'segments':[{'id':1,'mood':'neutral','type':'text','style':'bottom','texts':[{'type':'text','text':script,'line_id':1,'who':'default','start':0,'end':duration}],'cameraMovement':'none','images':[shown],'overlay':{'url':url(overlay)},'start':0,'end':duration}]}
  if edition.get('intro_title') and edition.get('intro'):
   audio_file,duration,cached=await record(edition['intro'],'intro',pad=.6)
   frame=intro_frame(edition,{k:v for k,v in photos.items() if not is_stock(v.get('credit'))} or photos,out_dir/'intro-frame.jpg')
@@ -361,9 +384,12 @@ async def prepare(workdir,legacy,voice,model,force):
   layout=layouts[i%len(layouts)]
   if layout in PHOTO_ONLY and not entry: layout='goc'  # a photo layout without a photo would leave the frame empty
   frame=background(item,assets/entry['file'] if entry else None,out_dir/f'bg-{i+1}-frame.jpg',layout)
-  stock=bool(entry) and is_stock(entry.get('credit') or item.get('image_credit'))
-  overlay=out_dir/f'{i+1}.svg'; overlay.write_text(card(edition,item,i,layout,stock))
-  manuscripts.append(manuscript(i+1,' '.join(item['title']),item['source'],script,audio_file,duration,frame,overlay))
+  clip=entry.get('video') if entry else None  # a free-licence clip plays in the photo area
+  video=video_background(layout,assets/clip,duration,out_dir/f'bg-{i+1}.mp4') if clip else None
+  stock=bool(entry) and is_stock(entry.get('video_credit') if clip else entry.get('credit') or item.get('image_credit'))
+  owner=entry.get('credit') if entry and not clip else None
+  overlay=out_dir/f'{i+1}.svg'; overlay.write_text(card(edition,item,i,layout,stock,bool(clip),owner if shows_credit(owner) else None))
+  manuscripts.append(manuscript(i+1,' '.join(item['title']),item['source'],script,audio_file,duration,frame,overlay,video))
   total+=duration; print(f'  {i+1}. {" ".join(item["title"])}: {duration}s{" (giọng có sẵn)" if cached else ""}',flush=True)
  props={'manuscripts':manuscripts,'width':1080,'height':1920,'voice':True,'backgroundMusic':False,'disabledLogo':True,'playerConfig':{'assetBaseUrl':BASE,'logo':'unused.svg','defaultCameraMovements':['none'],'styles':{'all':{'captions':{'container':'display:none;'},'progress':{'active':'display:none;','inactive':'display:none;'}}}}}
  meta_dir=root if legacy else workdir

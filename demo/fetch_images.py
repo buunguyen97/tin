@@ -14,14 +14,23 @@ A story left without a usable photo (none in the sheet, rights, download failure
 public-domain photo of its topic (STOCK_TOPICS: gold, police, court, bank) or else of its sector from
 demo/stock/<folder>/ (credits in demo/stock/credits.json), a different one for each such story
 of a video. prepare.py tags those "Ảnh minh họa".
+
+Before the library, a story whose row has "Từ khóa ảnh" (English words: "Knesset building") gets
+the first CC0 or public-domain photo Wikimedia Commons finds for them (commons_photo), cached as
+demo/assets/img-commons-<hash>.jpg. It is a stand-in too, so it is tagged "Ảnh minh họa".
+
+A story whose sheet row has a "Video URL" with a free licence ("Video nguồn": Wikimedia Commons
+CC0/public domain, NASA; image_rights.video_allowed) also gets the clip, cached as
+demo/assets/vid-<hash>.mp4; prepare.py plays it in the card's photo area.
 """
 import argparse, hashlib, json, os, re, shutil, subprocess, sys, time
 from html import unescape
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
 from edition import load_edition
-from image_rights import judge, photo_credit
+from image_rights import judge, photo_credit, video_allowed
+from reup import ff
 
 root = Path(__file__).resolve().parent
 assets = root / 'assets'
@@ -32,6 +41,7 @@ STOCK_TOPICS = [('vang', re.compile(r'\bvàng\b', re.I)),
                 ('canh_sat', re.compile(r'trốn trại|trại giam|phạm nhân|truy nã|bắt giữ|tạm giam|khởi tố|công an|cảnh sát', re.I)),
                 ('phap_luat', re.compile(r'xét xử|hầu tòa|tòa án|bị cáo|truy tố|bản án|tham ô', re.I)),
                 ('tai_chinh_ngan_hang', re.compile(r'ngân hàng|tiết kiệm', re.I))]
+DOMESTIC = {'canh_sat'}  # a Vietnamese police car would mislabel an arrest abroad
 CONFIG_FILE = Path(os.environ.get('DIEMTIN_CONFIG', root / 'config.json'))
 UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36'
 EXT = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp'}
@@ -119,11 +129,84 @@ def fetch_story_image(story):
             time.sleep(2 * attempt)
 
 
+CLIP_SECONDS = 60  # longest clip kept; a shorter one loops under the voice
+
+
+def fetch_story_clip(story):
+    """(clip, still) cached file names for the story's video: an H.264 copy without sound, at most
+    CLIP_SECONDS long and 1280 px wide, and a frame from it that stands in as the story's photo."""
+    key = hashlib.sha1(story['video'].encode()).hexdigest()[:16]
+    clip, still = assets / f'vid-{key}.mp4', assets / f'img-vid-{key}.jpg'
+    if not (clip.exists() and still.exists()):
+        # ffmpeg reads only the first CLIP_SECONDS of the link: library originals can be gigabytes.
+        part = assets / f'vid-{key}.part.mp4'
+        try:
+            ff('-user_agent', UA, '-t', CLIP_SECONDS, '-i', story['video'], '-an', '-vf', "scale='min(1280,iw)':-2,fps=25",
+               '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', part)
+            part.replace(clip)
+        finally:
+            part.unlink(missing_ok=True)
+        ff('-ss', 1, '-i', clip, '-frames:v', 1, '-q:v', 3, still)
+    clip.touch(); still.touch()  # auto_render.py keeps recently used cache files
+    return clip.name, still.name
+
+
+COMMONS_API = 'https://commons.wikimedia.org/w/api.php'
+COMMONS_UA = 'diem-tin/1.0 (news video tool)'  # Wikimedia asks scripts for their own name, not a browser's
+FREE_LICENCE = re.compile(r'^(cc0|public domain|pd-|pd$)', re.I)
+# Public domain is mostly old scans: a stereo card of 1900 Kiev says nothing about today's Kyiv.
+OLD_OR_DRAWN = re.compile(r'\b1[5-9][0-5]\d\b|stereo|postcard|engraving|lithograph|painting|drawing|map\b|logo|coat of arms'
+                          r'|\bloc\b|library of congress|brady-handy', re.I)
+
+
+def commons_photo(query):
+    """(cached file name, credit) of the first CC0 / public-domain landscape photo Commons finds for
+    `query` whose file name holds every word of it ("Knesset building") and doesn't look like an
+    old scan or a drawing, or None. The answer is cached per query, so a re-render keeps the photo."""
+    key = hashlib.sha1(query.lower().encode()).hexdigest()[:16]
+    name, note = f'img-commons-{key}.jpg', assets / f'credit-commons-{key}.txt'
+    if (assets / name).exists() and note.exists():
+        (assets / name).touch(); note.touch()
+        return name, note.read_text(encoding='utf-8')
+    url = (f'{COMMONS_API}?action=query&format=json&generator=search&gsrnamespace=6&gsrlimit=40'
+           f'&gsrsearch={quote(query + " filetype:bitmap haswbstatement:P275=Q6938433|P6216=Q19652")}&prop=imageinfo&iiprop=url|size|extmetadata'
+           f'&iiurlwidth=1920&iiextmetadatafilter=LicenseShortName|DateTimeOriginal')
+    p = subprocess.run(['curl', '-sSL', '--max-time', '30', '-A', COMMONS_UA, url], capture_output=True)
+    try:
+        pages = json.loads(p.stdout).get('query', {}).get('pages', {}) if not p.returncode else {}
+    except ValueError:  # Commons answers busy or rate-limited calls with an HTML page
+        return None
+    words = [w for w in re.findall(r'\w+', query.lower()) if len(w) > 2]
+    for page in sorted(pages.values(), key=lambda pg: pg.get('index', 99)):
+        title = page.get('title', '')
+        if not all(w in title.lower() for w in words) or OLD_OR_DRAWN.search(title):  # search also matches descriptions
+            continue
+        info = (page.get('imageinfo') or [{}])[0]
+        meta = info.get('extmetadata', {})
+        licence = meta.get('LicenseShortName', {}).get('value', '')
+        taken = re.search(r'(?:18|19|20)\d\d', meta.get('DateTimeOriginal', {}).get('value', ''))
+        if taken and int(taken.group()) < 1990:
+            continue
+        if not FREE_LICENCE.match(licence) or info.get('width', 0) < 1200 or not 1 <= info.get('width', 0) / max(info.get('height', 1), 1) <= 2.2:  # no portraits, no panoramas
+            continue
+        p = subprocess.run(['curl', '-sSL', '--max-time', '60', '-A', COMMONS_UA, '-o', str(assets / name),
+                            info.get('thumburl') or info['url']], capture_output=True)
+        if p.returncode or not (assets / name).exists() or (assets / name).stat().st_size < 20000:
+            (assets / name).unlink(missing_ok=True)
+            continue
+        credit = f'Wikimedia Commons ({licence})'
+        note.write_text(credit, encoding='utf-8')
+        return name, credit
+    return None
+
+
 def stock_files(story, used):
     """Library photos for `story`: of its topic while one is still unused, else of its sector."""
     text = ' '.join([*story.get('title', []), story.get('category', '')])
     for folder, pattern in STOCK_TOPICS:
         files = sorted(stock.glob(f'{folder}/*.jpg'))
+        if folder in DOMESTIC and story.get('sector') == 'quoc_te':
+            continue
         if pattern.search(text) and set(files) - used:
             return files
     return sorted(stock.glob(f'{story.get("sector", "")}/*.jpg')) or sorted(stock.glob(f'{STOCK_DEFAULT}/*.jpg'))
@@ -171,16 +254,40 @@ def process(workdir, legacy, check_rights=True):
                 name, cached = fetch_story_image(story)
                 manifest[str(i)] = {'article': story['url'], 'file': name, **({'credit': credit} if credit else {})}
                 print(f'  {i}. {title}: {"có sẵn" if cached else "đã tải"} {name}{f" (ảnh: {credit})" if credit else ""}', flush=True)
-                continue
             except Exception as e:
                 failed += 1
                 reason = f'CẢNH BÁO: không tải được ảnh ({e})'
-        picked = stock_photo(story, used)
-        if picked:
-            manifest[str(i)] = {'article': story['url'], 'file': picked[0], 'credit': picked[1]}
-            print(f'  {i}. {title}: {reason}; dùng ảnh minh họa {picked[0]}', flush=True)
-        else:  # prepare.py falls back to the plain background
-            print(f'  {i}. {title}: {reason}; dùng nền không ảnh', flush=True)
+        if reason and story.get('image_query'):
+            try:
+                found = commons_photo(story['image_query'])
+            except Exception as e:
+                found = None
+                print(f'  {i}. {title}: không tìm được ảnh Wikimedia ({e})', flush=True)
+            if found:
+                manifest[str(i)] = {'article': story['url'], 'file': found[0], 'credit': found[1]}
+                print(f'  {i}. {title}: {reason}; dùng ảnh Wikimedia "{story["image_query"]}" {found[0]}', flush=True)
+                reason = None
+        if reason:
+            picked = stock_photo(story, used)
+            if picked:
+                manifest[str(i)] = {'article': story['url'], 'file': picked[0], 'credit': picked[1]}
+                print(f'  {i}. {title}: {reason}; dùng ảnh minh họa {picked[0]}', flush=True)
+            else:  # prepare.py falls back to the plain background
+                print(f'  {i}. {title}: {reason}; dùng nền không ảnh', flush=True)
+        if story.get('video'):
+            usable, why = video_allowed(story.get('video_credit'))
+            if not usable:
+                print(f'  {i}. {title}: BỎ VIDEO, {why}', flush=True)
+                continue
+            try:
+                clip, still = fetch_story_clip(story)
+            except Exception as e:
+                failed += 1
+                print(f'  {i}. {title}: CẢNH BÁO: không tải được video ({e})', flush=True)
+                continue
+            entry = manifest.setdefault(str(i), {'article': story['url'], 'file': still, 'credit': story['video_credit']})
+            entry.update(video=clip, video_credit=story['video_credit'])
+            print(f'  {i}. {title}: video {clip} ({story["video_credit"]})', flush=True)
     (workdir / 'images.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
     return failed
 

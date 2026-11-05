@@ -26,6 +26,12 @@ AGENCIES = re.compile(r'\b(reuters|afp|ap|getty|epa|xinhua|bloomberg|ttxvn|vna|s
 OFFICIAL = re.compile(r'\b(vgp|chính phủ|quốc hội|bộ|sở|ubnd|ủy ban|uỷ ban|công an|cảnh sát|viện kiểm sát|tòa án|toà án'
                       r'|cổng thông tin|bql|ban quản lý|ban tổ chức|btc|tỉnh|thành phố|gov|tập đoàn|tổng công ty|công ty'
                       r'|ngân hàng|airlines|cung cấp|unsplash|pexels|pixabay|wikimedia|tự chụp)\b', re.I)
+# Governments that release their photos for reuse: US federal works are public domain; the Kremlin and
+# the Ukrainian presidency (CC BY 4.0), the UK (Open Government Licence) and the European Commission
+# ask for a credit, which the card then shows (prepare.py).
+FREE_GOV = re.compile(r'white house|nhà trắng|state department|bộ ngoại giao mỹ|dvids|pentagon|department of (?:defense|war)'
+                      r'|\bnasa\b|kremlin|điện kremlin|president\.gov\.ua|văn phòng tổng thống ukraine|president of ukraine'
+                      r'|gov\.uk|downing street|number 10|european commission|ủy ban châu âu|ec\.europa\.eu', re.I)
 # Free photo libraries: a stand-in picture of the topic, not of the event, so the card says so.
 STOCK = re.compile(r'wikimedia|unsplash|pexels|pixabay|openverse', re.I)
 # A word of a person's name: "Ngọc", "L", in capitals with Vietnamese marks ("HỮU"), or a short
@@ -64,9 +70,29 @@ def photo_credit(page, image_url):
     return _credit_after(page, m) if m else ''
 
 
+def shows_credit(credit):
+    """Whether the card names the photo's owner: government photos released on condition of a credit."""
+    return bool(FREE_GOV.search(credit or ''))
+
+
 def is_stock(credit):
     """Whether a photo credited to `credit` is a library picture standing in for the story's own."""
     return bool(STOCK.search(credit or ''))
+
+
+# Footage is reused only when its licence is free: news agencies and broadcasters sell theirs, and
+# a clip handed to the press is not cleared for re-publishing the way a photo is.
+FREE_VIDEO = re.compile(r'wikimedia|nasa|cc0|public domain', re.I)
+
+
+def video_allowed(credit):
+    """(usable, reason) for a clip credited to `credit` ("Video nguồn" in the sheet)."""
+    credit = (credit or '').strip()
+    if not credit:
+        return False, 'không ghi nguồn video'
+    if FREE_VIDEO.search(credit) and not AGENCIES.search(credit.replace('public domain', '')):
+        return True, f'video {credit}'
+    return False, f'video của {credit} không có giấy phép tự do'
 
 
 def judge(credit):
@@ -76,6 +102,8 @@ def judge(credit):
         return False, 'bài không ghi nguồn ảnh'
     if AGENCIES.search(credit):
         return False, f'ảnh của {credit}'
+    if FREE_GOV.search(credit):
+        return True, f'ảnh {credit} (cho phép dùng lại)'
     if OFFICIAL.search(credit):
         return True, f'ảnh {credit}'
     if REPORTER_TAG.match(credit):

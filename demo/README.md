@@ -75,6 +75,7 @@ Chạy test:
 ## Quy trình mỗi ngày
 
 1. **7:00 – Claude tổng hợp tin** vào tab `Tin` của Google Sheet, trạng thái `Nháp`. Mỗi tin ghi kèm Ngành, đánh dấu Hot nếu là tin nổi bật trong ngày. Prompt và đặc tả cột nằm ở [claude-prompt.md](claude-prompt.md).
+   **7:40 – routine thứ hai tổng hợp tin quốc tế** chỉ từ báo quốc tế (BBC, NYT, Guardian, Al Jazeera, DW, France 24, SCMP, NPR, ABC News, CNBC) vào cùng tab, ngành `Quốc tế`, thành video "Điểm tin quốc tế". Prompt ở [claude-prompt-quoc-te.md](claude-prompt-quoc-te.md).
 2. **Biên tập viên duyệt** trên Sheet: sửa nội dung, đổi trạng thái thành `Đã duyệt` hoặc `Bỏ`, chỉnh tick Hot nếu cần.
 3. **Mở Studio, bấm “Tạo tất cả video”**:
 
@@ -228,6 +229,9 @@ Mỗi lần tạo video (Studio, `run_daily.py`, tự render), bước tải ả
 - **Dùng**: ảnh cơ quan nhà nước (VGP, Quốc hội, Bộ, Sở, UBND, Công an…), ban tổ chức, doanh nghiệp (mã cổ phiếu, tên công ty, “… cung cấp”), thư viện ảnh miễn phí (Unsplash, Pexels, Pixabay, Wikimedia), ảnh tự chụp.
 - **Bỏ**: ảnh phóng viên (tên người, ví dụ “Ngọc Thành”, “HỮU HẠNH”), hãng thông tấn (Reuters, AFP, TTXVN…), báo khác, ảnh AI, ảnh không ghi nguồn hoặc không mở được bài. Nhật ký ghi “BỎ ẢNH” kèm lý do.
 - **Ảnh dự phòng**: tin bị bỏ ảnh, tin có Ảnh URL “none” hoặc tin tải ảnh lỗi đều lấy một ảnh CC0/public domain cùng ngành trong `stock/<ngành>/`. Nguồn từng ảnh ghi ở `stock/credits.json`. Mỗi tin trong một video nhận một ảnh khác nhau, và tin giữ nguyên ảnh khi render lại. Ảnh này có nhãn nhỏ “Ảnh minh họa” trên khung tin. Muốn thêm ảnh, chép file `.jpg` khổ ngang vào thư mục ngành và ghi nguồn vào `credits.json`.
+- Ảnh minh họa theo chủ đề đi trước ảnh theo ngành: tin giá vàng lấy `stock/vang/`, tin bắt giữ, khởi tố lấy `stock/canh_sat/` (trừ tin quốc tế), tin xét xử lấy `stock/phap_luat/`, tin ngân hàng lấy `stock/tai_chinh_ngan_hang/` (xem `STOCK_TOPICS` trong `fetch_images.py`). Tin quốc tế dùng `stock/quoc_te/`.
+- **Video**: hai cột cuối **Video URL** và **Video nguồn** cho phép một tin có clip thay cho ảnh. Máy chỉ dùng clip có giấy phép tự do (Wikimedia Commons CC0/public domain, NASA), đọc tối đa 60 giây đầu, bỏ tiếng, và cho clip chạy trong khung ảnh của thẻ; clip từ thư viện có nhãn “Video minh họa”. Clip của hãng tin, đài truyền hình, YouTube, TikTok… bị bỏ (`image_rights.video_allowed`).
+- **Từ khóa ảnh** (cột X): tên tiếng Anh của một công trình nổi tiếng ("Knesset building", "United States Capitol"). Khi tin không có ảnh dùng được, máy tìm trên Wikimedia Commons ảnh CC0/public domain có đủ các từ đó trong tên file, chụp từ 1990 trở lại đây, khổ ngang, không phải tranh vẽ hay bản quét cũ (`fetch_images.commons_photo`), trước khi dùng ảnh thư viện. Chỉ ghi tên thành phố thì kết quả rất ngẫu nhiên.
 - Muốn dùng một ảnh bị bỏ nhầm, điền nguồn đúng vào cột **Ảnh nguồn**, ví dụ “Công an cung cấp”. Muốn thay ảnh, dán link ảnh hợp lệ vào **Ảnh URL** và ghi nguồn của ảnh đó.
 
 Đây là kiểm tra tự động dựa trên chú thích, không thay cho việc xem lại trước khi đăng công khai.

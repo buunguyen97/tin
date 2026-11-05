@@ -76,6 +76,24 @@ class SheetTests(unittest.TestCase):
         self.assertEqual(errors, ['Dòng 2: thiếu kich_ban; bỏ qua tin này'])
         self.assertEqual(len(plans['tong-hop'][0]['stories']), 4)
 
+    def test_video_columns_reach_the_story(self):
+        rows = template_rows()
+        rows[0] += ['Video URL', 'Video nguồn']
+        rows[1] += ['https://upload.wikimedia.org/clip.webm', 'Wikimedia Commons (CC0)']
+        stories, _, _ = approved_stories(rows_to_dicts(rows), DAY)
+        story = next(s['story'] for s in stories if s['row'] == 2)
+        self.assertEqual((story['video'], story['video_credit']), ('https://upload.wikimedia.org/clip.webm', 'Wikimedia Commons (CC0)'))
+        self.assertTrue(all('video' not in s['story'] for s in stories if s['row'] != 2))
+
+    def test_photo_keyword_reaches_the_story(self):
+        rows = template_rows()
+        rows[0] += ['Video URL', 'Video nguồn', 'Từ khóa ảnh']
+        rows[1] += ['', '', ' Knesset building ']
+        stories, _, _ = approved_stories(rows_to_dicts(rows), DAY)
+        story = next(s['story'] for s in stories if s['row'] == 2)
+        self.assertEqual(story['image_query'], 'Knesset building')
+        self.assertTrue(all('image_query' not in s['story'] for s in stories if s['row'] != 2))
+
     def test_overlong_title_and_digits_in_script_warn(self):
         rows = template_rows()
         rows[1][COL['tieu_de_1']] = 'Một tiêu đề quá dài để vừa một dòng'

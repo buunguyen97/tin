@@ -186,6 +186,25 @@
       "intro_accent": "#F7A8FF"
     },
     {
+      "id": "quoc-te",
+      "title": "ĐIỂM TIN QUỐC TẾ",
+      "filter": {
+        "nganh": "Quốc tế"
+      },
+      "min": 2,
+      "max": 5,
+      "accent": "#7FD1FF",
+      "brand": "TIN TỨC QUỐC TẾ",
+      "intro": "Điểm tin quốc tế",
+      "intro_hook": "Cùng điểm qua những sự kiện thế giới đáng chú ý nhất.",
+      "intro_title": [
+        "ĐIỂM TIN",
+        "QUỐC TẾ"
+      ],
+      "intro_tagline": "THẾ GIỚI HÔM NAY CÓ GÌ",
+      "intro_accent": "#7FD1FF"
+    },
+    {
       "id": "phap-luat",
       "title": "ĐIỂM TIN PHÁP LUẬT",
       "filter": {
