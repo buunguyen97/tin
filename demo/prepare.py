@@ -10,15 +10,16 @@ assets=root/'assets'; assets.mkdir(exist_ok=True)
 BASE='http://127.0.0.1:8765'  # render.mjs serves demo/ here
 W,H=1080,1920
 INK,YELLOW='#0B0B0B','#FFD21F'
-# TikTok covers the top tabs, the caption and music below, and the button rail on the right;
-# text stays inside this box (commonly used safe-zone margins for 1080x1920).
-SAFE={'top':160,'bottom':1440,'left':80,'right':920}
+# TikTok covers the top tabs, the caption and music below, and the button rail on the right, and
+# tall phones crop about 55 px off each side; text stays inside this box (measured on an iPhone
+# screenshot: tabs end near y=225, the rail starts near x=905).
+SAFE={'top':240,'bottom':1440,'left':84,'right':880}
 # Story card layouts, used in turn so a video doesn't repeat one look (the programme config can
 # pick its own list with "layouts"). Windowed layouts show the photo through a hole in the overlay:
 # x, y, width, height, corner radius. Full-bleed ones put it across the top, fading to black
 # (height, fade start, fade length).
 LAYOUTS=['goc','anh-tran-tren','anh-tran-vien','the-kem','phu-de']
-WINDOWS={'goc':(44,170,992,530,36),'the-kem':(67,180,946,440,26)}
+WINDOWS={'goc':(70,240,940,480,32),'the-kem':(80,250,920,420,26)}
 BLEEDS={'anh-tran-tren':dict(height=820,fade=(440,360),left=True),'anh-tran-vien':dict(height=1160,fade=(460,580),left=False)}
 # 'phu-de': the photo in a band between black bars, the headline as an outlined subtitle on it.
 BAND=(300,1620)
@@ -197,7 +198,7 @@ def _wrap_condensed(value,width,size):
 def _card_subtitle(item,size):
  """Photo between black bars, the headline in white condensed type with a black outline like a
  burned-in subtitle, and a small source line under it, right-aligned."""
- left,right=56,SAFE['right']; width=right-left  # condensed lines run wider than the other cards', as in the subtitle look
+ left,right=SAFE['left'],SAFE['right']; width=right-left
  while len(lines:=_wrap_condensed(' '.join(item['title']),width,size))>3: size-=2
  outline=f'font-family="{CONDENSED}" font-weight="700" fill="#FFFFFF" stroke="#000000" stroke-linejoin="round" paint-order="stroke"'
  lh=round(size*1.22); y=1220-(len(lines)-1)*lh; s=[]
@@ -213,7 +214,7 @@ def stock_tag(layout):
  else: x,top=SAFE['left'],max(BAND[0] if layout=='phu-de' else 0,SAFE['top'])+16
  return [f'<rect x="{x}" y="{top}" width="{w}" height="{h}" rx="{h//2}" fill="#000000" fill-opacity=".45"/>',
          text(x+pad,top+20,label,size,'#FFFFFF',400,extra=' fill-opacity=".9"')]
-CARDS={'goc':(_card_goc,68),'anh-tran-tren':(_card_photo_top,80),'anh-tran-vien':(_card_photo_bleed,72),'the-kem':(_card_cream,80),'phu-de':(_card_subtitle,56)}
+CARDS={'goc':(_card_goc,62),'anh-tran-tren':(_card_photo_top,70),'anh-tran-vien':(_card_photo_bleed,64),'the-kem':(_card_cream,68),'phu-de':(_card_subtitle,54)}
 def card(edition,item,i,layout='goc',stock=False):
  """Overlay drawn by the player above the still background, in one of LAYOUTS. Every text stays in
  TikTok's safe area (SAFE): clear of the tabs on top, the caption below and the button rail; a
