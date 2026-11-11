@@ -125,13 +125,13 @@ Tác vụ chạy `demo/auto_render.py` mỗi 10 phút trong khung `auto_render.w
 - `programmes`: danh sách video. Mỗi mục có các trường:
   - `id`: tên file video.
   - `title`: tiêu đề trên thẻ tin.
-  - `filter`: `{"nganh": "Bất động sản"}` cho video ngành, hoặc `{"hot": true}` cho video nổi bật.
+  - `filter`: `{"nganh": "Bất động sản"}` cho video ngành, `{"nganh": ["Doanh nghiệp", "Năng lượng"]}` để gộp nhiều ngành vào một video (Sheet và routine vẫn ghi tên ngành cũ), hoặc `{"hot": true}` cho video nổi bật.
   - `min` / `max`: số tin tối thiểu / tối đa.
   - `accent`: màu nhấn của thẻ tin.
   - Phần intro: `intro` (câu đọc, chương trình tự thêm “hôm nay, ngày…”), `intro_title` (các dòng tiêu đề lớn), `intro_tagline`, `intro_accent`.
   - `voice` (không bắt buộc): giọng riêng cho video đó, ví dụ `"voice": "Mai Anh"` cho video nổi bật.
 - `voice`: giọng mặc định. Có 25 giọng VieNeu, chọn được trong Studio.
-- `speed`: tốc độ đọc (mặc định 1.25; 1 là tốc độ gốc). Đổi tốc độ thì giọng được đọc lại.
+- `speed`: tốc độ đọc (đang dùng 1.15; 1 là tốc độ gốc). Đổi tốc độ thì giọng được đọc lại.
 - `layouts`: bố cục thẻ tin (mặc định `["goc", "anh-tran-tren", "anh-tran-vien", "the-kem", "phu-de"]`). Mỗi video xáo trộn danh sách này một lần, rồi dùng lần lượt cho từng tin, nên hai tin liền nhau không trùng bố cục. Thứ tự xáo trộn cố định theo ngày và tên video, nên tạo lại video vẫn giữ nguyên bố cục. Đặt ở cấp ngoài cùng cho mọi video, hoặc trong một chương trình chỉ cho video đó. Tin không có ảnh thì không dùng các bố cục ảnh tràn (`anh-tran-tren`, `anh-tran-vien`, `phu-de`) mà chuyển về `goc`.
   - `phu-de`: ảnh ở giữa khung, hai dải đen trên dưới, tiêu đề chữ trắng viền đen kiểu phụ đề (font Barlow Condensed), dòng nguồn nhỏ bên dưới. Không có ô số liệu.
 - `brand`: dòng thương hiệu trên intro; một chương trình có thể đặt `brand` riêng (ví dụ video Pháp luật).
@@ -206,7 +206,59 @@ Gửi link video (X, TikTok, YouTube, Facebook…) cho bot Telegram. Máy tải 
 
 Nhật ký ở `output/telegram-bot.log`. Video ở `output/reup/`, dữ liệu trung gian ở `demo/work/reup/<mã>/`. Bot làm từng việc một, và chờ nếu máy đang làm video điểm tin hằng ngày.
 
-Tuỳ chỉnh trong mục `reup` của `demo/config.json` (không bắt buộc): `voice`, `speed` (mặc định lấy theo video điểm tin), `original_volume` (mặc định 0.25), `label` (mặc định "TIN NÓNG").
+Tuỳ chỉnh trong mục `reup` của `demo/config.json` (không bắt buộc): `voice`, `speed` (mặc định lấy theo video điểm tin), `original_volume` (mặc định 0.25), `label` (mặc định "TIN NÓNG"), `tiktok_account`, `tiktok_ai_label` (mặc định true), `tiktok_auto` (mặc định false), `tiktok_auto_from` (ngày bắt đầu tự đăng, `YYYY-MM-DD`).
+
+### Đăng lên TikTok từ bot
+
+Sau khi gửi MP4, bot hỏi chủ bot có đăng lên TikTok không, kèm caption Claude đã viết. **Đăng TikTok** đăng công khai ngay, **Đăng riêng tư** để xem thử rồi mới bấm đăng công khai. Chỉ chủ bot thấy và dùng được các nút này. Máy đăng bản đầy đủ trong `output/reup/`, không phải bản nén cho Telegram.
+
+Bot dùng [autotok](https://github.com/makiisthenes/TiktokAutoUploader), đăng nhập bằng trình duyệt, không qua API chính thức của TikTok. TikTok có thể hạn chế hoặc khoá tài khoản đăng kiểu này, nên hãy thử trên tài khoản phụ trước.
+
+**Bằng giao diện:** mở Studio (`.venv-demo\Scripts\python.exe demo\studio.py`, rồi vào http://127.0.0.1:8790), chọn tab **TikTok**. Tạo sẵn shortcut trên desktop bằng `powershell -ExecutionPolicy Bypass -File demo\windows\install-studio-shortcut.ps1`; đóng cửa sổ thu nhỏ của shortcut là tắt Studio. Việc tự đăng không cần Studio.
+
+Trong tab này:
+
+- Thanh trên cùng cho biết tài khoản (`@tên`), số bài hôm nay, bài kế tiếp, và có nút **Dừng tự đăng** (bài đang tải lên dở vẫn hoàn tất). Tab tự làm mới mỗi phút, không làm mất chữ đang gõ hay video đang xem.
+- Thứ tự đăng được chốt ngay khi render xong, nên có 30 phút đọc caption trước bài đầu. Mỗi video ghi rõ *Bài kế tiếp*, *Sẽ tự đăng* hay *Không đăng hôm nay*.
+- **Lưu caption**: lịch tự đăng và nút đăng dùng bản đã lưu. Nếu tin của video đổi sau đó, bản đã lưu không còn áp dụng.
+- **Không đăng video này**: loại video khỏi lịch hôm nay, video kế tiếp sẽ thế chỗ.
+- Có thể kết nối, kiểm tra, ngắt tài khoản và đăng tay riêng tư hoặc công khai. Mọi video đều đăng lên một tài khoản đó. Nút đăng công khai và nút bật lại tự đăng cần bấm hai lần. Lịch sử đăng dùng chung với bot, nên video đã đăng ở một nơi sẽ không đăng lại ở nơi kia.
+
+Cài đặt một lần:
+
+```powershell
+uv pip install --python .venv-demo -r demo/requirements-demo.txt
+.venv-demo\Scripts\autotok.exe install-browser
+```
+
+Sau đó kết nối tài khoản trong Studio. Nếu không dùng Studio, thay `tai_khoan` bằng tên bạn đặt:
+
+```powershell
+.venv-demo\Scripts\autotok.exe login -n tai_khoan
+```
+
+Rồi thêm vào `demo/config.json`. Dù kết nối bằng cách nào, cũng cần khởi động lại bot một lần để Telegram có nút đăng:
+
+```json
+"reup": {"tiktok_account": "tai_khoan"}
+```
+
+**Video tin tức:** sau mỗi lượt `auto_render.py` thành công, bot gửi chủ bot từng video (ảnh các khung hình và caption gồm tiêu đề tin, nguồn, hashtag) kèm hai nút trên. Bot không tự đăng khi chưa được bấm. Sheet đổi và render lại thì bot chỉ hỏi lại các video có nội dung đổi; nút cũ của video đã đổi sẽ không đăng nữa. Máy đang render thì việc đăng chờ tới khi xong. Gõ `/tin` để xem lại các video hôm nay chưa đăng, kể cả video làm từ Studio. Không nên bấm đăng dồn nhiều video trong vài phút, và hãy xem lại nội dung trước khi đăng công khai vì kiểm tra tự động không thay được việc này.
+
+**Tự động đăng:** bật trong tab TikTok của Studio, và đặt ngày bắt đầu bằng `tiktok_auto_from` trong mục `reup` của `config.json`. Từ ngày đó bot không hỏi nữa mà tự đăng công khai video tin tức:
+
+- **Thời điểm:** bài đầu đi sau khi lượt render thành công đã qua 30 phút mà không có render mới, vì Sheet hay đổi ngay sau lượt đầu. Đang render thì mọi việc đăng dừng lại chờ.
+- **Thứ tự:** `tong-hop` trước, các video khác xáo ngẫu nhiên mỗi ngày.
+- **Khoảng cách:** ngẫu nhiên 90–120 phút giữa hai bài. Bài đăng tay (kể cả video reup) cũng được tính, nên bài kế tiếp tự lùi lại.
+- **Mỗi chương trình đăng tối đa một lần một ngày:** video chưa đăng dùng bản mới nhất; video đã đăng thì không đăng lại dù tin đổi.
+- **Giới hạn mỗi ngày:** tăng dần từ ngày bắt đầu: tuần đầu 3 bài, tuần thứ hai 5 bài, sau đó 7 bài. Bài công khai đăng tay, kể cả reup, cũng được tính. Khi đủ bài, video còn lại không đăng và bot báo trong Telegram.
+- **Caption:** Claude viết 1–2 câu tự nhiên từ tiêu đề và chi tiết tin, kèm dòng nguồn và hashtag. Máy loại bản có emoji, văn mẫu, câu hỏi hay con số không có trong tin rồi yêu cầu viết lại một lần. Nếu vẫn không đạt, hoặc Claude không chạy được, máy dùng tiêu đề tin chính làm caption. Caption lưu ở `output/daily/<ngày>/tiktok-captions.json` và hiện trong tab TikTok trước khi đăng.
+- **Giờ dừng:** từ 23:00 không đăng nữa, video còn lại bị bỏ và bot báo trong Telegram.
+- **Khi lỗi:** TikTok từ chối thì tự thử lại tối đa 2 lần, cách 30–45 phút, rồi bỏ qua video đó. Nếu chưa rõ video đã lên chưa thì không thử lại mà báo để bạn kiểm tra. Chưa đăng nhập thì chờ và báo một lần.
+
+Lịch hôm nay hiện trong tab TikTok và lưu ở `output/daily/<ngày>/tiktok-auto.json`, nên bot hay máy khởi động lại vẫn chạy tiếp. Video reup vẫn đăng bằng nút. Máy và bot phải chạy tới khi đăng xong (có thể tới 23:00), và nội dung không có bước đọc lại nên cần duyệt kỹ trên Sheet.
+
+Phiên đăng nhập lưu ở `~/.autotok`, ngoài dự án; giữ kín thư mục này vì nó có giá trị như mật khẩu. `tiktok.json` trong thư mục làm việc ghi lại bản đã đăng để cùng một bản render không lên hai lần. Nếu bot báo chưa rõ kết quả, hãy xem trên TikTok trước; nếu video chưa lên, đăng lại bằng lệnh `autotok upload`. Nhãn nội dung AI bật sẵn vì video dùng giọng đọc AI; tắt được trong tab TikTok.
 
 ### Chạy bằng dòng lệnh
 
@@ -231,7 +283,9 @@ Mỗi lần tạo video (Studio, `run_daily.py`, tự render), bước tải ả
 - **Ảnh dự phòng**: tin bị bỏ ảnh, tin có Ảnh URL “none” hoặc tin tải ảnh lỗi đều lấy một ảnh CC0/public domain cùng ngành trong `stock/<ngành>/`. Nguồn từng ảnh ghi ở `stock/credits.json`. Mỗi tin trong một video nhận một ảnh khác nhau, và tin giữ nguyên ảnh khi render lại. Ảnh này có nhãn nhỏ “Ảnh minh họa” trên khung tin. Muốn thêm ảnh, chép file `.jpg` khổ ngang vào thư mục ngành và ghi nguồn vào `credits.json`.
 - Ảnh minh họa theo chủ đề đi trước ảnh theo ngành: tin giá vàng lấy `stock/vang/`, tin bắt giữ, khởi tố lấy `stock/canh_sat/` (trừ tin quốc tế), tin xét xử lấy `stock/phap_luat/`, tin ngân hàng lấy `stock/tai_chinh_ngan_hang/` (xem `STOCK_TOPICS` trong `fetch_images.py`). Tin quốc tế dùng `stock/quoc_te/`.
 - **Video**: hai cột cuối **Video URL** và **Video nguồn** cho phép một tin có clip thay cho ảnh. Máy chỉ dùng clip có giấy phép tự do (Wikimedia Commons CC0/public domain, NASA), đọc tối đa 60 giây đầu, bỏ tiếng, và cho clip chạy trong khung ảnh của thẻ; clip từ thư viện có nhãn “Video minh họa”. Clip của hãng tin, đài truyền hình, YouTube, TikTok… bị bỏ (`image_rights.video_allowed`).
-- **Từ khóa ảnh** (cột X): tên tiếng Anh của một công trình nổi tiếng ("Knesset building", "United States Capitol"). Khi tin không có ảnh dùng được, máy tìm trên Wikimedia Commons ảnh CC0/public domain có đủ các từ đó trong tên file, chụp từ 1990 trở lại đây, khổ ngang, không phải tranh vẽ hay bản quét cũ (`fetch_images.commons_photo`), trước khi dùng ảnh thư viện. Chỉ ghi tên thành phố thì kết quả rất ngẫu nhiên.
+- **Claude tìm ảnh**: tin không có ảnh dùng được thì `claude -p` trên máy này đề xuất từ khóa (cột X **Từ khóa ảnh** được thử trước), máy chỉ tải ảnh CC0/public domain từ Wikimedia Commons (`fetch_images.found_photo`), rồi Claude mở xem từng ảnh và chọn ảnh đúng nội dung, không ảnh nào đạt thì thôi. Việc kiểm tra giấy phép nằm trong code, không giao cho Claude. Thẻ có nhãn “Ảnh minh họa”.
+- **Claude vẽ ảnh**: không chọn được ảnh thì `ai_image.py` nhờ Claude vẽ một hình minh họa bằng SVG, rồi Chrome chuyển thành PNG. Hình không có chữ, không có khuôn mặt, không có cảnh bạo lực; thẻ có nhãn “Đồ họa AI”. Cả hai bước tính vào hạn mức Claude của tài khoản đăng nhập. Claude lỗi hoặc hết hạn mức thì dùng ảnh thư viện. Tắt cả hai bằng `"ai_image": "tat"` trong `config.json`.
+- **Dọn tin cũ**: mỗi sáng routine tin trong nước (BƯỚC 0 trong `claude-prompt.md`) xóa các dòng trong Sheet cũ hơn 3 ngày (giữ hôm nay và 2 ngày trước). Muốn lấy lại dòng đã xóa thì dùng lịch sử phiên bản của Google Sheet. Video, ảnh cache trên máy được `auto_render.cleanup` dọn riêng.
 - Muốn dùng một ảnh bị bỏ nhầm, điền nguồn đúng vào cột **Ảnh nguồn**, ví dụ “Công an cung cấp”. Muốn thay ảnh, dán link ảnh hợp lệ vào **Ảnh URL** và ghi nguồn của ảnh đó.
 
 Đây là kiểm tra tự động dựa trên chú thích, không thay cho việc xem lại trước khi đăng công khai.
@@ -280,4 +334,4 @@ Kịch bản 27/10/2026 được biên tập từ nguồn ở `sources.md`, dữ
 .venv-demo/bin/python -m unittest discover -s demo -p 'test_*.py'
 ```
 
-Bốn kiểm tra bao gồm thời lượng WAV theo số sample, chống tái sử dụng cache sau khi đổi đầu vào, WAV rỗng và MP3 hỏng. `verify.py` giải mã toàn bộ MP4, đo âm lượng và trích khung hình từng tin. File QA có tên bắt đầu bằng tên video. `tts-vieneu-first-run.json` lưu thời gian chạy đầu tiên trên máy này; không phải benchmark cho mọi máy.
+Bốn kiểm tra bao gồm thời lượng WAV theo số sample, chống tái sử dụng cache sau khi đổi đầu vào, WAV rỗng và MP3 hỏng. `verify.py` giải mã toàn bộ MP4, đo âm lượng và trích khung hình từng tin. File QA có tên bắt đầu bằng tên video. Sau khi render, `loudness.py` đưa âm thanh về -14 LUFS mà không mã hóa lại hình. Trong video bản tin, ảnh zoom chậm dưới lớp khung đứng yên và chữ của mỗi tin hiện dần từ trên xuống, trừ khung đầu tiên của video vì đó là ảnh bìa. `tts-vieneu-first-run.json` lưu thời gian chạy đầu tiên trên máy này; không phải benchmark cho mọi máy.

@@ -16,11 +16,12 @@ from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 from edition import WORK, default_programmes, normalise, save_edition, spoken_date
+import wording
 
 root = Path(__file__).resolve().parent
 CONFIG_FILE = Path(os.environ.get('DIEMTIN_CONFIG', root / 'config.json'))
 
-REQUIRED = ['nganh', 'chuyen_muc', 'tieu_de_1', 'so_lieu', 'don_vi', 'nguon', 'url', 'kich_ban']
+REQUIRED = ['nganh', 'chuyen_muc', 'tieu_de_1', 'nguon', 'url', 'kich_ban']  # so_lieu, don_vi: a story may have no figure worth a box
 APPROVED = {'da_duyet', 'duyet', 'ok', 'approved'}
 TRUE = {'true', 'x', 'co', '1', 'yes', 'hot', 'v'}
 NO_IMAGE = {'none', 'khong', 'khong_co', 'no'}
@@ -107,6 +108,38 @@ def _number(value):
         return float('inf')
 
 
+OUTLETS = ['VnExpress', 'CafeF', 'Tuổi Trẻ', 'Thanh Niên', 'VnEconomy', 'Dân trí', 'Báo Chính phủ', 'Pháp Luật TP HCM', 'Pháp Luật',
+           'BBC', 'Reuters', 'AP', 'Associated Press', 'AFP', 'Al Jazeera', 'Deutsche Welle', 'DW', 'The Guardian', 'Guardian',
+           'New York Times', 'The New York Times', 'NYT', 'France 24', 'South China Morning Post', 'SCMP', 'NPR', 'ABC News', 'CNBC', 'CNN']
+
+
+def unattributed(script, source):
+    """The script without "Theo <outlet>," opening a sentence: the card already names the outlet, and saying it in every
+    story costs a second each. "Theo Bộ Công an," stays: that names who said it, not where it was read."""
+    named = [name.strip() for name in re.split(r'[,;/]| và ', source.split(' • ')[0]) if name.strip()]
+    outlets = [re.escape(name) for name in sorted(set(named + OUTLETS), key=len, reverse=True)]  # "DW" in the source, "Deutsche Welle" read out
+    cut = re.compile(r'(^|(?<=[.!?…] ))Theo (?:báo |tờ |hãng tin |đài )?(?:' + '|'.join(outlets) + r')(?:, dẫn (?:lại |nguồn |tin )?[^,.]{2,40})?, (\w)', re.I)
+    return cut.sub(lambda m: m[1] + m[2].upper(), script)
+
+
+def figure_of(number, unit):
+    """The card's big number and its label, or ('', '') when the number is not the story's: someone's age, or no label.
+    "tuổi, tuổi của quân nhân" (the unit written twice) loses the first one."""
+    unit = re.sub(r'^(.{2,20}?)\s*,\s*(?=\1\b)', '', unit.strip(), flags=re.I)
+    version = re.fullmatch(r'\d+(?:\.\d+){2,}', number.strip()) and not re.fullmatch(r'\d{1,3}(?:\.\d{3})+', number.strip())
+    if not number.strip() or not unit or normalise(unit).startswith('tuoi') or version:  # "27.2.1" is an iOS release, not a quantity
+        return '', ''
+    return number.strip(), unit
+
+
+def same_edition(path, edition):
+    """Is the news.json at `path` this very edition? Then its folder (photos, voice, cards) and its video still stand."""
+    try:
+        return json.loads(Path(path).read_text()) == json.loads(json.dumps(edition))
+    except (OSError, ValueError):
+        return False
+
+
 def approved_stories(records, day, freshness=None):
     """Approved, valid rows for `day` as stories, plus warnings and errors.
 
@@ -155,17 +188,29 @@ def approved_stories(records, day, freshness=None):
         if repeat:
             errors.append(f'{label}: trùng sự kiện với {repeat} (cùng số liệu, tiêu đề gần giống); bỏ qua')
             continue
+        shown = ('tieu_de_1', 'tieu_de_2', 'don_vi', 'chi_tiet_1', 'chi_tiet_2', 'kich_ban')  # what the video says or shows
+        barred = next((s for col in shown for s in wording.money_near_barred(rec.get(col, ''))), None)
+        if barred:  # the story still airs: wording never costs a story
+            warnings.append(f'{label}: có câu nêu tiền cạnh ma túy, vũ khí, mại dâm hoặc cờ bạc ("{barred[:70]}")')
         recent_events.append((f'dòng {n}', key))
         for col, limit in LIMITS.items():
             if len(rec.get(col, '')) > limit:
                 warnings.append(f'{label}: "{col}" dài {len(rec[col])} ký tự (nên ≤ {limit}), có thể tràn khung')
-        if re.search(r'\d', rec['kich_ban']):
-            warnings.append(f'{label}: kịch bản còn chữ số; giọng đọc có thể đọc sai, nên viết số bằng chữ')
+        rec = {**rec, **{col: wording.soften(rec[col]) if col == 'kich_ban' else wording.mask(wording.soften(rec[col])) for col in shown if rec.get(col)}}  # prepare.py masks the script's captions
+        if wording.problems(rec['kich_ban']):
+            warnings.append(f'{label}: kịch bản còn từ "chết"; nên viết "thiệt mạng"')
+        rec['kich_ban'] = unattributed(rec['kich_ban'], rec['nguon'])
+        number, unit = figure_of(rec.get('so_lieu', ''), rec.get('don_vi', ''))
+        if rec.get('so_lieu') and not number:
+            warnings.append(f'{label}: số liệu "{rec["so_lieu"]} {rec.get("don_vi", "")}" là tuổi hoặc thiếu đơn vị, không phải con số của tin; thẻ không có ô số')
+        digits = re.findall(r'[^\s,.;:!?"()]*\d[^\s,;:!?"()]*', rec['kich_ban'])
+        if digits:  # named, so a road or model name ("A1", "5G") is not taken for a forgotten figure
+            warnings.append(f'{label}: kịch bản còn chữ số ({", ".join(digits[:4])}); giọng đọc có thể đọc sai, nên viết bằng chữ (ví dụ "A một")')
         story = {
             'category': rec['chuyen_muc'].upper(),
             'title': [t for t in (rec['tieu_de_1'], rec.get('tieu_de_2', '')) if t],
-            'number': rec['so_lieu'],
-            'unit': rec['don_vi'].upper(),
+            'number': number,
+            'unit': unit.upper(),
             'detail': [t for t in (rec.get('chi_tiet_1', ''), rec.get('chi_tiet_2', '')) if t],
             'note': rec.get('ghi_chu', ''),
             'source': rec['nguon'],
@@ -180,7 +225,7 @@ def approved_stories(records, day, freshness=None):
             story['image'] = image
         if rec.get('anh_nguon'):
             story['image_credit'] = rec['anh_nguon']
-        if rec.get('tu_khoa_anh', '').strip():  # English words for a free stand-in photo (fetch_images.commons_photo)
+        if rec.get('tu_khoa_anh', '').strip():  # English words to search a free photo with (fetch_images.found_photo)
             story['image_query'] = rec['tu_khoa_anh'].strip()
         video = rec.get('video_url', '').strip()
         if video.startswith('http'):  # a free-licence clip (fetch_images.fetch_story_clip)
@@ -194,6 +239,12 @@ def approved_stories(records, day, freshness=None):
     return stories, warnings, errors
 
 
+def programme_sectors(prog):
+    """The sectors a video takes its stories from: `nganh` is one name, or a list when it merges several."""
+    names = prog.get('filter', {}).get('nganh', '')
+    return {normalise(name) for name in ([names] if isinstance(names, str) else names)}
+
+
 def plan_programmes(stories, programmes, day, config=None):
     """Assign stories to programmes. Returns [(programme, edition | None, reason)]."""
     config = config or {}
@@ -203,8 +254,8 @@ def plan_programmes(stories, programmes, day, config=None):
         if f.get('hot'):
             picked = sorted((s for s in stories if s['hot']), key=lambda s: (s['hot_order'], s['order'], s['row']))
         else:
-            sector = normalise(f.get('nganh', ''))
-            picked = sorted((s for s in stories if s['sector'] == sector), key=lambda s: (s['order'], s['row']))
+            sectors = programme_sectors(prog)
+            picked = sorted((s for s in stories if s['sector'] in sectors), key=lambda s: (s['order'], s['row']))
         picked = picked[:prog.get('max', 6)]
         if len(picked) < prog.get('min', 1):
             plans.append((prog, None, f'{len(picked)} tin đã duyệt, cần ít nhất {prog.get("min", 1)}'))
@@ -236,7 +287,7 @@ def plan_programmes(stories, programmes, day, config=None):
 
 
 def unassigned_warnings(stories, programmes):
-    sectors = {normalise(p.get('filter', {}).get('nganh', '')) for p in programmes}
+    sectors = set().union(*map(programme_sectors, programmes))
     return [f'Dòng {s["row"]}: ngành "{s["sector_label"]}" không có video riêng'
             + (' (vẫn vào video nổi bật)' if s['hot'] else '') for s in stories if s['sector'] not in sectors]
 
@@ -311,13 +362,23 @@ def main(argv=None):
     plans = plan_programmes(stories, programmes, day, config)
 
     day_dir = WORK / day.isoformat()
-    if day_dir.exists():  # stale editions from an earlier run must not be rendered again
-        shutil.rmtree(day_dir)
+    editions = {prog['id']: edition for prog, edition, _ in plans if edition}
+    kept = set()
+    for item in day_dir.iterdir() if day_dir.exists() else []:  # stale editions from an earlier run must not be rendered again
+        if item.is_dir() and item.name in editions and same_edition(item / 'news.json', editions[item.name]):
+            kept.add(item.name)  # the sheet changed elsewhere: this video need not be made again (run_daily.py)
+        elif item.is_dir():
+            shutil.rmtree(item)
+        else:  # auto-render.json too: while it is gone, the day's render counts as under way (tiktok_post.render_finished)
+            item.unlink()
     summary = []
     for prog, edition, reason in plans:
         entry = {'id': prog['id'], 'title': prog['title'], 'status': 'ready' if edition else 'skipped', 'reason': reason}
         if edition:
-            save_edition(edition, day_dir / prog['id'] / 'news.json')
+            if prog['id'] in kept:
+                entry['unchanged'] = True
+            else:
+                save_edition(edition, day_dir / prog['id'] / 'news.json')
             entry['count'] = len(edition['stories'])
             entry['stories'] = [' '.join(s['title']) for s in edition['stories']]
         summary.append(entry)

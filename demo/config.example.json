@@ -4,7 +4,7 @@
   "sheet_gid": 0,
   "service_account_file": "",
   "voice": "Ngọc Huyền",
-  "speed": 1.25,
+  "speed": 1.15,
   "brand": "TIN TỨC KINH TẾ VIỆT NAM",
   "outro": "",
   "intro_image": "",
@@ -22,6 +22,7 @@
     "enforce_from": "2026-10-29"
   },
   "retention_days": 14,
+  "short_format": true,
   "programmes": [
     {
       "id": "tong-hop",

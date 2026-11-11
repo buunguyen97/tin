@@ -15,19 +15,25 @@ public-domain photo of its topic (STOCK_TOPICS: gold, police, court, bank) or el
 demo/stock/<folder>/ (credits in demo/stock/credits.json), a different one for each such story
 of a video. prepare.py tags those "Ảnh minh họa".
 
-Before the library, a story whose row has "Từ khóa ảnh" (English words: "Knesset building") gets
-the first CC0 or public-domain photo Wikimedia Commons finds for them (commons_photo), cached as
-demo/assets/img-commons-<hash>.jpg. It is a stand-in too, so it is tagged "Ảnh minh họa".
+Before the library, unless config.json says "ai_image": "tat", Claude looks for a photo (found_photo):
+it proposes searches ("Từ khóa ảnh" in the sheet is tried first), this file fetches CC0 and public-
+domain photos from Wikimedia Commons, and Claude looks at them and picks one that fits, cached as
+demo/assets/img-found-<hash>.jpg and tagged "Ảnh minh họa". If none fits, Claude draws an
+illustration (ai_image.py), cached as demo/assets/img-ai-<hash>.png and tagged "Đồ họa AI". The
+library photos are what is left when that fails.
 
 A story whose sheet row has a "Video URL" with a free licence ("Video nguồn": Wikimedia Commons
 CC0/public domain, NASA; image_rights.video_allowed) also gets the clip, cached as
 demo/assets/vid-<hash>.mp4; prepare.py plays it in the card's photo area.
 """
-import argparse, hashlib, json, os, re, shutil, subprocess, sys, time
+import argparse, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time
 from html import unescape
 from pathlib import Path
 from urllib.parse import quote, urljoin
 
+from PIL import Image
+
+import ai_image
 from edition import load_edition
 from image_rights import judge, photo_credit, video_allowed
 from reup import ff
@@ -159,45 +165,95 @@ OLD_OR_DRAWN = re.compile(r'\b1[5-9][0-5]\d\b|stereo|postcard|engraving|lithogra
                           r'|\bloc\b|library of congress|brady-handy', re.I)
 
 
-def commons_photo(query):
-    """(cached file name, credit) of the first CC0 / public-domain landscape photo Commons finds for
-    `query` whose file name holds every word of it ("Knesset building") and doesn't look like an
-    old scan or a drawing, or None. The answer is cached per query, so a re-render keeps the photo."""
-    key = hashlib.sha1(query.lower().encode()).hexdigest()[:16]
-    name, note = f'img-commons-{key}.jpg', assets / f'credit-commons-{key}.txt'
-    if (assets / name).exists() and note.exists():
-        (assets / name).touch(); note.touch()
-        return name, note.read_text(encoding='utf-8')
-    url = (f'{COMMONS_API}?action=query&format=json&generator=search&gsrnamespace=6&gsrlimit=40'
+def commons_candidates(query):
+    """Photos Commons has for `query`, as dicts (title, licence, url), best match first: CC0 or public
+    domain, landscape, large enough, and not looking like an old scan or a drawing."""
+    url = (f'{COMMONS_API}?action=query&format=json&generator=search&gsrnamespace=6&gsrlimit=30'
            f'&gsrsearch={quote(query + " filetype:bitmap haswbstatement:P275=Q6938433|P6216=Q19652")}&prop=imageinfo&iiprop=url|size|extmetadata'
            f'&iiurlwidth=1920&iiextmetadatafilter=LicenseShortName|DateTimeOriginal')
     p = subprocess.run(['curl', '-sSL', '--max-time', '30', '-A', COMMONS_UA, url], capture_output=True)
     try:
         pages = json.loads(p.stdout).get('query', {}).get('pages', {}) if not p.returncode else {}
     except ValueError:  # Commons answers busy or rate-limited calls with an HTML page
-        return None
-    words = [w for w in re.findall(r'\w+', query.lower()) if len(w) > 2]
+        return []
+    found = []
     for page in sorted(pages.values(), key=lambda pg: pg.get('index', 99)):
         title = page.get('title', '')
-        if not all(w in title.lower() for w in words) or OLD_OR_DRAWN.search(title):  # search also matches descriptions
-            continue
         info = (page.get('imageinfo') or [{}])[0]
         meta = info.get('extmetadata', {})
         licence = meta.get('LicenseShortName', {}).get('value', '')
         taken = re.search(r'(?:18|19|20)\d\d', meta.get('DateTimeOriginal', {}).get('value', ''))
-        if taken and int(taken.group()) < 1990:
+        width, height = info.get('width', 0), max(info.get('height', 1), 1)
+        if (OLD_OR_DRAWN.search(title) or not FREE_LICENCE.match(licence) or (taken and int(taken.group()) < 1990)
+                or width < 1200 or not 1 <= width / height <= 2.2):  # no portraits, no panoramas
             continue
-        if not FREE_LICENCE.match(licence) or info.get('width', 0) < 1200 or not 1 <= info.get('width', 0) / max(info.get('height', 1), 1) <= 2.2:  # no portraits, no panoramas
-            continue
-        p = subprocess.run(['curl', '-sSL', '--max-time', '60', '-A', COMMONS_UA, '-o', str(assets / name),
-                            info.get('thumburl') or info['url']], capture_output=True)
-        if p.returncode or not (assets / name).exists() or (assets / name).stat().st_size < 20000:
-            (assets / name).unlink(missing_ok=True)
-            continue
-        credit = f'Wikimedia Commons ({licence})'
-        note.write_text(credit, encoding='utf-8')
-        return name, credit
-    return None
+        found.append({'title': title.removeprefix('File:'), 'licence': licence, 'url': info.get('thumburl') or info['url']})
+    return found
+
+
+def download_photo(url, out):
+    """Save the photo at `url` as the JPEG `out`; False when it can't be fetched or read."""
+    with tempfile.TemporaryDirectory() as tmp:
+        raw = Path(tmp) / 'raw'
+        p = subprocess.run(['curl', '-sSL', '--max-time', '60', '-A', COMMONS_UA, '-o', str(raw), url], capture_output=True)
+        if p.returncode or not raw.exists() or raw.stat().st_size < 20000:
+            return False
+        try:
+            with Image.open(raw) as im:
+                im.convert('RGB').save(out, 'JPEG', quality=90)
+        except OSError:
+            return False
+    return True
+
+
+CANDIDATES_PER_SEARCH, MAX_CANDIDATES = 4, 12
+
+
+def found_photo(story):
+    """(cached file name, credit) of a free photo Claude chose for `story` after looking at it, or
+    None when Claude saw none that fits; that verdict is cached too, so a re-render doesn't search again."""
+    key = image_key(story)
+    name, note = f'img-found-{key}.jpg', assets / f'credit-found-{key}.txt'
+    if note.exists():
+        note.touch()
+        if not note.read_text(encoding='utf-8'):
+            return None
+        (assets / name).touch()
+        return name, note.read_text(encoding='utf-8')
+    candidates = {}
+    for term in ai_image.search_terms(story, story.get('image_query', '')):
+        for photo in commons_candidates(term)[:CANDIDATES_PER_SEARCH]:
+            candidates.setdefault(photo['url'], photo)
+        if len(candidates) >= MAX_CANDIDATES:
+            break
+        time.sleep(1)  # Commons refuses scripts that call it too fast
+    if not candidates:
+        return None  # possibly a Commons hiccup: not a verdict, so not cached
+    with tempfile.TemporaryDirectory() as folder:
+        photos, sources = {}, {}
+        for photo in list(candidates.values())[:MAX_CANDIDATES]:
+            file = f'{len(photos) + 1:02d}.jpg'
+            if download_photo(photo['url'], Path(folder) / file):
+                photos[file], sources[file] = photo['title'], photo
+        if not photos:
+            return None
+        picked = ai_image.pick_photo(story, folder, photos)
+        if not picked:
+            note.write_text('', encoding='utf-8')
+            return None
+        shutil.copyfile(Path(folder) / picked, assets / name)
+    credit = f'Wikimedia Commons ({sources[picked]["licence"]})'
+    note.write_text(credit, encoding='utf-8')
+    return name, credit
+
+
+def drawn_picture(story):
+    """(cached file name, credit) of the illustration Claude drew for `story`, drawing it if needed."""
+    name = f'img-ai-{image_key(story)}.png'
+    if not (assets / name).exists():
+        ai_image.draw(story, assets / name)
+    (assets / name).touch()  # auto_render.py keeps recently used cache files
+    return name, ai_image.CREDIT
 
 
 def stock_files(story, used):
@@ -233,7 +289,7 @@ def stock_photo(story, used):
     return name, f'Wikimedia Commons ({info.get("license", "CC0")})'
 
 
-def process(workdir, legacy, check_rights=True):
+def process(workdir, legacy, check_rights=True, use_claude=True):
     edition = load_edition(root / 'news.json' if legacy else workdir / 'news.json')
     manifest, failed, used = {}, 0, set()
     for i, story in enumerate(edition['stories'], 1):
@@ -257,16 +313,24 @@ def process(workdir, legacy, check_rights=True):
             except Exception as e:
                 failed += 1
                 reason = f'CẢNH BÁO: không tải được ảnh ({e})'
-        if reason and story.get('image_query'):
+        if reason and use_claude:
             try:
-                found = commons_photo(story['image_query'])
-            except Exception as e:
+                found = found_photo(story)
+            except Exception as e:  # no CLI, out of quota, an odd answer: drawing or the library may still work
                 found = None
-                print(f'  {i}. {title}: không tìm được ảnh Wikimedia ({e})', flush=True)
+                print(f'  {i}. {title}: Claude không tìm được ảnh ({e})', flush=True)
             if found:
                 manifest[str(i)] = {'article': story['url'], 'file': found[0], 'credit': found[1]}
-                print(f'  {i}. {title}: {reason}; dùng ảnh Wikimedia "{story["image_query"]}" {found[0]}', flush=True)
+                print(f'  {i}. {title}: {reason}; Claude chọn ảnh {found[0]} ({found[1]})', flush=True)
                 reason = None
+        if reason and use_claude:
+            try:
+                name, by = drawn_picture(story)
+                manifest[str(i)] = {'article': story['url'], 'file': name, 'credit': by}
+                print(f'  {i}. {title}: {reason}; Claude vẽ ảnh {name}', flush=True)
+                reason = None
+            except Exception as e:  # no CLI, out of quota, a bad drawing: the library still has a photo
+                print(f'  {i}. {title}: Claude không vẽ được ({e})', flush=True)
         if reason:
             picked = stock_photo(story, used)
             if picked:
@@ -302,7 +366,8 @@ def main():
     failed = 0
     for wd in args.workdir or [root]:
         print(f'[{wd.name}]', flush=True)
-        failed += process(wd.resolve(), legacy=args.workdir is None, check_rights=check_rights)
+        failed += process(wd.resolve(), legacy=args.workdir is None, check_rights=check_rights,
+                          use_claude=config.get('ai_image', 'bat') != 'tat')
     print('ảnh lỗi:', failed)
 
 

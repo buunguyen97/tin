@@ -11,16 +11,18 @@ Jobs run one at a time on this machine; renders wait for the daily videos (share
 the machine needs no open port.
 """
 import json, queue, re, sys, threading, time, traceback
-from datetime import datetime
+from datetime import date, datetime
 
 import requests
 
 import reup
-from edition import WORK
+import tiktok_post
+from edition import WORK, pipeline_lock
 
 URL = re.compile(r'https?://\S+')
 POLL = 50  # seconds a getUpdates call waits for messages
 RETRY_BUSY = 60  # seconds before a render tries the lock again
+NEWS_CHECK = 60  # seconds between looks for newly rendered news videos
 HELP = ('Gửi link video (X, TikTok, YouTube, Facebook…). Mình tải video, nhờ Claude viết kịch bản, '
         'gửi bạn duyệt rồi đọc giọng và render.\n\nKhi đang xem kịch bản, nhắn một câu bất kỳ để yêu cầu sửa, '
         'ví dụ: "ngắn lại", "tiêu đề giật hơn", "bỏ câu thứ ba".')
@@ -28,6 +30,13 @@ HELP = ('Gửi link video (X, TikTok, YouTube, Facebook…). Mình tải video, 
 
 def log(*parts):
     print(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), *parts, flush=True)
+
+
+def keep_awake(on):
+    """Ask Windows not to sleep on idle, for as long as this thread lives or until asked back. Changes no setting."""
+    if sys.platform == 'win32':
+        import ctypes
+        ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | (0x00000001 if on else 0))  # ES_CONTINUOUS, ES_SYSTEM_REQUIRED
 
 
 def who(message):
@@ -98,6 +107,8 @@ class Bot:
             self.chats = [c for c in self.chats if c not in removed]
             self.save_chats()
             return self.say(chat, f'Đã xoá: {", ".join(map(str, removed))}' if removed else 'Không có id nào để xoá (không xoá được chủ).')
+        if command == '/tin' and chat == self.owner:
+            return self.jobs.put(('news_list', chat))  # Claude may write captions first: not on the polling thread
         link = URL.search(text)
         if link:
             self.jobs.put(('new', chat, link[0]))
@@ -126,8 +137,8 @@ class Bot:
         self.call('answerCallbackQuery', callback_query_id=query['id'])
         chat = query['message']['chat']['id']
         action, arg = query['data'].split(':', 1)
-        if chat not in self.chats or (action in ('allow', 'deny') and chat != self.owner):
-            return
+        if chat not in self.chats or (action in ('allow', 'deny', 'tt', 'ttp', 'ttn', 'ttnp') and chat != self.owner):
+            return  # the TikTok account is the owner's: nobody else may post to it
         # Drop the buttons so the same choice isn't made twice.
         self.call('editMessageReplyMarkup', chat_id=chat, message_id=query['message']['message_id'], reply_markup={'inline_keyboard': []})
         if action in ('allow', 'deny'):
@@ -138,6 +149,8 @@ class Bot:
             elif action == 'deny':
                 self.say(other, 'Chủ bot không cho phép dùng bot này.')
             return self.say(chat, f"{'Đã cho phép' if action == 'allow' else 'Đã từ chối'} {other}.")
+        if action in ('ttn', 'ttnp'):
+            return self.jobs.put(('tiktok_news', chat, *arg.split('/'), action == 'ttnp'))
         wd = reup.REUP / arg
         if action == 'ok':
             self.jobs.put(('make', chat, wd))
@@ -147,6 +160,8 @@ class Bot:
             if self.current.get(chat) == wd:
                 del self.current[chat]
             self.say(chat, 'Đã bỏ video này.')
+        elif action in ('tt', 'ttp'):
+            self.jobs.put(('tiktok', chat, wd, action == 'ttp'))
 
     def poll(self):
         offset = None
@@ -196,6 +211,169 @@ class Bot:
         self.status(note, f'✅ Xong: {video.name}')
         if self.current.get(chat) == wd:
             del self.current[chat]
+        self.offer_tiktok(chat, wd)
+
+    def offer_tiktok(self, chat, wd, private_too=True):
+        """Only the owner gets the buttons, and only once an account is set in config.json."""
+        account = reup.settings()['tiktok_account']
+        if chat != self.owner or not account:
+            return
+        buttons = [{'text': '📤 Đăng TikTok', 'callback_data': f'tt:{wd.name}'}]
+        if private_too:
+            buttons.append({'text': '🔒 Đăng riêng tư', 'callback_data': f'ttp:{wd.name}'})
+        self.say(chat, f'Đăng video này lên TikTok "{account}"? Nút Đăng TikTok sẽ đăng công khai ngay.', reply_markup={'inline_keyboard': [buttons]})
+
+    def tiktok(self, chat, wd, private):
+        conf = reup.settings()
+        note = self.say(chat, '📤 Đang đăng lên TikTok…')
+        try:
+            video_id = tiktok_post.post_reup(wd, reup.OUTPUT / f'{wd.name}.mp4', conf['tiktok_account'], private, conf['tiktok_ai_label'])
+        except tiktok_post.PostError as e:
+            self.status(note, f'⚠️ {e}')
+            if e.retry:
+                self.offer_tiktok(chat, wd)
+            return
+        self.status(note, f"✅ Đã đăng TikTok{' ở chế độ riêng tư' if private else ''} (mã video {video_id}).")
+        if private:
+            self.offer_tiktok(chat, wd, private_too=False)
+
+    # --- news videos: the day's render is put to the owner, one video at a time ----------------------
+
+    def news_list(self, chat):
+        self.offer_news(again=True)
+
+    def offer_news(self, again=False):
+        """Put newly rendered news videos to the owner, or post the next one if automatic posting is on.
+        `again` (/tin) repeats every one not yet posted."""
+        conf, day = reup.settings(), date.today().isoformat()
+        account = conf['tiktok_account']
+        if self.owner and not again and conf['tiktok_auto'] and conf['tiktok_auto_from'] and day >= conf['tiktok_auto_from']:
+            return self.auto_news(day, account)
+        if not self.owner or not account:
+            return again and self.say(self.owner, 'Chưa đặt tài khoản TikTok trong config.json.')
+        if not again and not tiktok_post.render_finished(day):
+            return
+        with pipeline_lock() as free:
+            if not free:
+                return again and self.say(self.owner, 'Máy đang làm video, thử lại sau khi xong.')
+            videos = tiktok_post.news_videos(day)
+        waiting = [v for v in videos if not tiktok_post.seen(v, 'public') and (again or not tiktok_post.seen(v, 'offered'))]
+        if again and not waiting:
+            self.say(self.owner, 'Hôm nay không còn video tin tức nào chờ đăng.')
+        for item in waiting:
+            tiktok_post.prepare_caption(day, item['id'])
+            fresh = next((v for v in tiktok_post.news_videos(day) if v['id'] == item['id']), item)
+            self.offer_news_video(fresh, account)
+            tiktok_post.mark_offered(fresh)
+
+    def auto_news(self, day, account):
+        """One step of the day's automatic posting; the watcher calls this every minute."""
+        if not tiktok_post.render_finished(day):
+            return
+        if not account:
+            if tiktok_post.warn_once(day, 'account'):
+                self.say(self.owner, '⚠️ Video tin hôm nay đã xong nhưng chưa kết nối tài khoản TikTok nên chưa đăng được. Hãy kết nối trong Studio.')
+            return
+        with pipeline_lock() as free:
+            if not free:
+                return
+            videos = tiktok_post.news_videos(day)
+        tiktok_post.fix_order(day, videos)
+        limit = tiktok_post.daily_limit(reup.settings()['tiktok_auto_from'], day)
+        left = tiktok_post.leftovers(day, videos, limit=limit)
+        if left and tiktok_post.warn_once(day, 'late'):
+            reason = f'Đã đủ {limit} bài của hôm nay' if tiktok_post.posts_today(day) >= limit else f'Đã qua {tiktok_post.STOP_HOUR} giờ'
+            self.say(self.owner, f"🌙 {reason}, hôm nay không đăng: {', '.join(left)}.")
+        item = tiktok_post.next_auto(day, videos, limit=limit)
+        if not item:
+            tiktok_post.prepare_next_caption(day, videos, limit)
+        if item:
+            self.jobs.put(('tiktok_news', self.owner, day, item['id'], item['key'], False, True))
+
+    def auto_news_failed(self, note, day, pid, error):
+        outcome = tiktok_post.auto_failed(day, pid, error)
+        log(f'auto post failed ({outcome}):', pid, error)
+        ahead = {'retry': 'Sẽ tự thử lại sau 30–45 phút.', 'skip': 'Đã thử đủ số lần nên bỏ video này, sau 30–45 phút đăng video kế tiếp.',
+                 'check': 'Video này sẽ không tự đăng lại.', 'stop': 'Việc tự đăng đang chờ bạn xử lý lỗi này.'}[outcome]
+        if outcome != 'stop' or tiktok_post.warn_once(day, 'stop'):
+            self.status(note, f'⚠️ {pid}: {error}\n{ahead}')
+        else:
+            self.status(note, f'⚠️ {pid}: chưa đăng được, vẫn chờ bạn xử lý lỗi đã báo.')
+
+    def offer_news_video(self, item, account, private_too=True):
+        ref = f"{item['day']}/{item['id']}/{item['key']}"
+        buttons = [{'text': '📤 Đăng TikTok', 'callback_data': f'ttn:{ref}'}]
+        if private_too:
+            buttons.append({'text': '🔒 Đăng riêng tư', 'callback_data': f'ttnp:{ref}'})
+        text = f"Video tin {item['id']}, đăng lên TikTok \"{account}\":\n\n{item['caption']}"
+        markup = {'inline_keyboard': [buttons]}
+        if item['preview'].exists():
+            try:
+                with open(item['preview'], 'rb') as f:
+                    return self.call('sendPhoto', chat_id=self.owner, files={'photo': (item['preview'].name, f, 'image/jpeg')},
+                                     caption=text[:1024], reply_markup=markup)
+            except (RuntimeError, requests.RequestException) as e:
+                log('preview not sent:', e)
+        self.say(self.owner, text, reply_markup=markup)
+
+    def tiktok_news(self, chat, day, pid, key, private, auto=False):
+        conf = reup.settings()
+        if auto and (not conf['tiktok_auto'] or pid in tiktok_post.read_auto(day).get('skipped', [])):  # stopped after this post was picked
+            return
+        tiktok_post.prepare_caption(day, pid)
+        with pipeline_lock() as free:  # a render under way would overwrite the file being uploaded
+            if not free:
+                if not auto:
+                    self.say(chat, f'⏳ Máy đang làm video. Sẽ đăng {pid} sau.')
+                threading.Timer(RETRY_BUSY, self.jobs.put, args=(('tiktok_news', chat, day, pid, key, private, auto),)).start()
+                return
+            item = next((v for v in tiktok_post.news_videos(day) if v['id'] == pid), None)
+            if not item and auto:  # being rendered again, or no longer planned: the schedule picks it up next time
+                return log('auto post skipped, no finished video:', pid)
+            # A button stands for what the owner saw. The schedule takes the latest version.
+            if not auto and (not item or item['key'] != key):
+                return self.say(chat, f'⚠️ Video {pid} đã thay đổi từ lúc gửi nút này nên chưa đăng. Gõ /tin để xem bản mới.')
+            note = self.say(chat, f"📤 {'Tự động đ' if auto else 'Đ'}ang đăng {pid} lên TikTok…")
+            try:
+                video_id = tiktok_post.post_news(item, conf['tiktok_account'], private, conf['tiktok_ai_label'])
+            except tiktok_post.PostError as e:
+                if auto:
+                    return self.auto_news_failed(note, day, pid, e)
+                self.status(note, f'⚠️ {pid}: {e}')
+                if e.retry:
+                    self.offer_news_video(item, conf['tiktok_account'])
+                return
+        ahead = ''
+        if auto:
+            left = tiktok_post.waiting_videos(day, tiktok_post.news_videos(day), tiktok_post.read_auto(day))
+            next_at = tiktok_post.read_auto(day).get('next_at', '')
+            limit = tiktok_post.daily_limit(conf['tiktok_auto_from'], day)
+            count = tiktok_post.posts_today(day)
+            ahead = f'\nĐã đủ {limit} bài của hôm nay.' if count >= limit else \
+                f'\nBài {count}/{limit} hôm nay, bài kế tiếp khoảng {next_at[11:16]}.' if left else '\nĐã đăng hết video hôm nay.'
+        self.status(note, f"✅ Đã đăng {pid}{' ở chế độ riêng tư' if private else ''} (mã video {video_id}).{ahead}")
+        if private:
+            self.offer_news_video(item, conf['tiktok_account'], private_too=False)
+
+    def machine_needed(self):
+        conf, day = reup.settings(), date.today().isoformat()
+        if not (conf['tiktok_auto'] and conf['tiktok_account'] and conf['tiktok_auto_from'] and day >= conf['tiktok_auto_from']):
+            return False
+        return tiktok_post.machine_needed(day, tiktok_post.news_videos(day), tiktok_post.daily_limit(conf['tiktok_auto_from'], day))
+
+    def watch_news(self):
+        awake = False
+        while True:
+            time.sleep(NEWS_CHECK)
+            try:
+                self.offer_news()
+                needed = self.machine_needed()
+                if needed != awake:
+                    keep_awake(needed)
+                    awake = needed
+                    log('keeping the machine awake for today\'s posts' if needed else 'machine may sleep again')
+            except Exception:
+                log(traceback.format_exc())
 
     def send_video(self, chat, wd, video):
         script = json.loads((wd / 'script.json').read_text())
@@ -250,6 +428,7 @@ def main():
     me = bot.call('getMe')
     log(f"@{me['username']} đang chạy; được dùng: {bot.chats or 'chưa có ai (gửi /start)'}")
     threading.Thread(target=bot.work, daemon=True).start()
+    threading.Thread(target=bot.watch_news, daemon=True).start()
     bot.poll()
 
 

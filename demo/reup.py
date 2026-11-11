@@ -17,6 +17,7 @@ import argparse, asyncio, hashlib, html, json, math, os, re, shutil, subprocess,
 from pathlib import Path
 
 from edition import WORK, pipeline_lock
+import wording
 
 demo = Path(__file__).resolve().parent
 project = demo.parent
@@ -54,7 +55,9 @@ def settings():
     config = json.loads((demo / 'config.json').read_text()) if (demo / 'config.json').exists() else {}
     reup = config.get('reup', {})
     return {'voice': reup.get('voice') or config.get('voice', 'Ngọc Huyền'), 'speed': reup.get('speed') or config.get('speed', 1.25),
-            'original_volume': reup.get('original_volume', .25), 'label': reup.get('label', 'TIN NÓNG')}
+            'original_volume': reup.get('original_volume', .25), 'label': reup.get('label', 'TIN NÓNG'),
+            'tiktok_account': reup.get('tiktok_account', ''), 'tiktok_ai_label': reup.get('tiktok_ai_label', True),
+            'tiktok_auto': reup.get('tiktok_auto', False), 'tiktok_auto_from': reup.get('tiktok_auto_from', '')}
 
 
 def dotenv():
@@ -188,12 +191,16 @@ Viết kịch bản theo các quy tắc:
 - {fewest} đến {most_sentences} câu, mỗi câu không quá {max_sentence} tiếng (âm tiết); tổng khoảng {syllables} tiếng, không quá {most} tiếng.
   Câu đầu là câu dẫn hấp dẫn.
   Thứ tự các câu theo diễn biến trong video, để lời đọc khớp hình.
+- Không nêu giá, cách thức hay nơi mua của ma túy, vũ khí, mại dâm, cờ bạc. Không dùng từ giật gân, không mô tả thương tích;
+  tin thương vong viết "thiệt mạng" thay cho "chết". Viết đúng chính tả, không viết né kiểu "m.a t.úy".
 - Câu cuối nhắc nguồn: video do ai đăng, trên mạng nào.
 - Câu đọc chỉ dùng chữ: số viết bằng chữ ("hai mươi người"), không viết tắt, không ký hiệu, từ nước ngoài
   thay bằng từ tiếng Việt khi có (drone -> máy bay không người lái). Tên riêng nước ngoài giữ nguyên.
 - Tiêu đề: 1 hoặc 2 dòng VIẾT HOA, mỗi dòng không quá 24 ký tự, gây tò mò nhưng đúng sự thật.
 - Nhãn: 1 đến 3 từ VIẾT HOA (ví dụ TIN NÓNG, TIN QUỐC TẾ, CLIP HOT).
-- Caption để đăng TikTok: 1 đến 2 câu, kèm 3 đến 5 hashtag tiếng Việt không dấu.
+- Caption để đăng TikTok: viết như người thật gõ nhanh, 1 đến 2 câu ngắn, viết hoa thường bình thường, nói thẳng vào sự việc.
+  Không emoji, không câu hỏi hay kêu gọi tương tác, không văn mẫu ("khoảnh khắc", "gây chú ý", "gây xôn xao", "không thể bỏ lỡ").
+  Thêm 2 đến 3 hashtag tiếng Việt không dấu ở cuối.
 - Phụ đề: chia mỗi câu thành các cụm từ 3 đến 5 tiếng, không quá 20 ký tự, hiện lần lượt trên màn hình. Ngắt ở chỗ tự nhiên
   (sau dấu câu, trước "của", "và", "đang"…), không tách đôi một từ ("máy bay", "người đàn ông", "tuần hành" nằm gọn trong một cụm).
   Ghép các cụm của một câu lại phải đúng nguyên câu đó, giữ cả dấu câu.
@@ -222,12 +229,17 @@ def ask_claude(prompt, wd):
     for key in ('CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_OAUTH_TOKEN'):
         if dotenv().get(key):
             env[key] = os.path.expandvars(dotenv()[key])
-    run = subprocess.run([claude_bin(), '-p', '--output-format', 'json', '--allowedTools', 'Read', '--max-turns', '6'],
-                         input=prompt, capture_output=True, text=True, encoding='utf8', errors='replace', cwd=wd, env=env, timeout=600)
-    try:
-        answer = json.loads(run.stdout)
-    except json.JSONDecodeError:
-        raise RuntimeError(f'Claude không trả lời được: {(run.stderr or run.stdout)[-500:]}')
+    for attempt in range(2):
+        run = subprocess.run([claude_bin(), '-p', '--output-format', 'json', '--allowedTools', 'Read', '--max-turns', '6'],
+                             input=prompt, capture_output=True, text=True, encoding='utf8', errors='replace', cwd=wd, env=env, timeout=600)
+        try:
+            answer = json.loads(run.stdout)
+        except json.JSONDecodeError:
+            raise RuntimeError(f'Claude không trả lời được: {(run.stderr or run.stdout)[-500:]}')
+        if answer.get('subtype') != 'error_max_turns' or attempt:
+            break
+        # It went looking around the folder until its turns ran out: ask once more, for the answer alone.
+        prompt += '\n\nTrả lời ngay bằng JSON như yêu cầu ở trên. Đừng mở thêm tệp hay dùng công cụ nào nữa.'
     if answer.get('is_error'):
         raise RuntimeError(f"Claude báo lỗi: {answer.get('result') or answer.get('subtype')}")
     found = re.search(r'\{.*\}', answer.get('result', ''), re.S)
@@ -254,6 +266,8 @@ def problems(script, most):
     titles = [script['title']] if isinstance(script['title'], str) else script['title']
     if len(titles) > 2 or any(len(t) > 30 for t in titles):
         found.append('Tiêu đề phải có 1 hoặc 2 dòng, mỗi dòng không quá 24 ký tự.')
+    for line in dict.fromkeys(p for text in [*sentences, *titles, script.get('caption') or ''] for p in wording.problems(text)):
+        found.append(line)
     return found
 
 
@@ -464,7 +478,14 @@ def pieces_of(sentence, given):
             pieces[-1] = pieces[-1] + p  # two words alone flash by in a third of a second
         else:
             pieces.append(p)
-    return [q for p in pieces for q in ([p] if fits(p) else chunks(' '.join(p)))]
+    pieces = [q for p in pieces for q in ([p] if fits(p) else chunks(' '.join(p)))]
+    joined = []
+    for p in pieces:  # a word alone after a comma ("khối") is gone before it is read: it opens the next piece
+        if joined and len(joined[-1]) == 1 and not PUNCTUATION.search(joined[-1][-1]) and fits(joined[-1] + p):
+            joined[-1] = joined[-1] + p
+        else:
+            joined.append(p)
+    return joined
 
 
 def cues(sentences, times, files, subtitles=None):
@@ -476,9 +497,18 @@ def cues(sentences, times, files, subtitles=None):
         pieces = pieces_of(sentence, subtitles[k] if k < len(subtitles) else None); weights = [len(p) for p in pieces]
         anchors = {0: start, len(pieces): end}
         marks = [i + 1 for i, p in enumerate(pieces[:-1]) if PUNCTUATION.search(p[-1])]
-        pauses = inner_pauses(f)
-        if marks and len(pauses) == len(marks):
-            anchors.update({i: start + t for i, t in zip(marks, pauses)})
+        pauses = [t for t in inner_pauses(f) if t < end - start - .4]  # the silence closing the clip is not one of them
+        # A pause pins the piece ending at a punctuation mark only when it falls near where that mark is due by the
+        # count of words: VieNeu also pauses in the middle of a clause and runs over a comma, and a pause taken for
+        # the wrong mark squeezes four pieces into a second and leaves the next one standing for three.
+        near = max(.6, .12 * (end - start)); free = list(pauses)
+        for i in marks:
+            due = (end - start) * sum(weights[:i]) / sum(weights)
+            close = [t for t in free if abs(t - due) <= near]
+            if close:
+                t = min(close, key=lambda t: abs(t - due))
+                anchors[i] = start + t
+                free = [u for u in free if u > t]  # pauses stay in order
         keys = sorted(anchors); bounds = {}
         for a, b in zip(keys, keys[1:]):
             for i in range(a, b + 1):
@@ -541,17 +571,18 @@ def _build(wd):
     from prepare import W, H, BASE, url
     script = json.loads((wd / 'script.json').read_text()); analysis = json.loads((wd / 'analysis.json').read_text())
     conf = settings(); src = wd / 'source.mp4'
-    files = asyncio.run(voice_lines(script['sentences'], conf))
+    files = asyncio.run(voice_lines([wording.to_voice(s) for s in script['sentences']], conf))
     times, voice = join_voice(files, wd / 'voice.wav', min(analysis['clip_end'], NARRATION_SECONDS + 15))
     total, stretch, replay = timeline(analysis, voice)
     print(f'  giọng {voice:.2f}s, video gốc {analysis["clip_end"]}s -> {total:.2f}s', flush=True)
     clip = box(analysis['width'], analysis['height'])
-    write_subtitles(cues(script['sentences'], times, files, script.get('subtitles')), clip, wd / 'subtitles.ass')
+    pieces = [[wording.mask(p) for p in line] for line in script['subtitles']] if isinstance(script.get('subtitles'), list) else None
+    write_subtitles(cues([wording.mask(s) for s in script['sentences']], times, files, pieces), clip, wd / 'subtitles.ass')
     compose_video(src, analysis, total, stretch, replay, wd / 'subtitles.ass', wd / 'background.mp4')
     mix_audio(src, wd / 'voice.wav', analysis, total, stretch, conf['original_volume'], wd / 'audio.wav')
     for old in wd.glob('sub-*.svg'):
         old.unlink()
-    (wd / 'overlay.svg').write_text(overlay(script, clip))
+    (wd / 'overlay.svg').write_text(overlay({**script, 'title': [wording.mask(t) for t in script['title']]}, clip))
     texts = [{'type': 'text', 'text': s, 'line_id': i + 1, 'who': 'default', 'start': a, 'end': b} for i, (s, (a, b)) in enumerate(zip(script['sentences'], times))]
     segment = {'id': 1, 'mood': 'neutral', 'type': 'text', 'style': 'bottom', 'texts': texts, 'cameraMovement': 'none',
                'images': [{'type': 'video', 'url': url(wd / 'background.mp4'), 'startFrom': 0, 'endAt': total,
@@ -572,6 +603,8 @@ def render(wd):
     out = OUTPUT / f'{wd.name}.mp4'
     node = shutil.which('node') or 'node'
     subprocess.run([node, str(demo / 'render.mjs'), str(wd / 'props.json'), str(out)], check=True, cwd=project)
+    from loudness import try_normalize  # loudness.py imports this module
+    try_normalize(out)
     return out
 
 

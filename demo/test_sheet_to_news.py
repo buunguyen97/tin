@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest import mock
 import auto_render, run_daily
 from edition import default_programmes, normalise, number_words, spoken_date
-from sheet_to_news import SheetError, approved_stories, canonical_url, parse_date, plan_programmes, rows_to_dicts
+from sheet_to_news import SheetError, approved_stories, canonical_url, parse_date, plan_programmes, rows_to_dicts, unassigned_warnings
 
 TEMPLATE = Path(__file__).resolve().parent / 'sheet-template.csv'
 DAY = date(2026, 10, 27)
@@ -60,6 +60,20 @@ class SheetTests(unittest.TestCase):
         programmes[0]['max'] = 3
         plans, _, _ = plan(rows, programmes)
         self.assertEqual([s['number'] for s in plans['tong-hop'][0]['stories']], ['10', '25.10', '16'])
+
+    def test_one_video_can_merge_sectors(self):
+        rows = template_rows()
+        programmes = [{'id': 'gop', 'title': 'GỘP', 'filter': {'nganh': ['Doanh nghiệp', 'Vĩ mô – Chính sách', 'Hàng không – Du lịch']}, 'min': 2, 'max': 6}]
+        stories, _, _ = approved_stories(rows_to_dicts(rows), DAY)
+        merged = {'doanh_nghiep', 'vi_mo_chinh_sach', 'hang_khong_du_lich'}
+        expected = [s for s in stories if s['sector'] in merged]
+        self.assertGreater(len(expected), 2)
+        plans, _, _ = plan(rows, programmes)
+        edition = plans['gop'][0]
+        self.assertEqual(len(edition['stories']), len(expected))
+        # Each story keeps its own sector, which picks its fallback photo.
+        self.assertEqual({s['sector'] for s in edition['stories']}, merged)
+        self.assertFalse([w for w in unassigned_warnings(expected, programmes)])
 
     def test_only_approved_rows_for_the_day(self):
         rows = template_rows()

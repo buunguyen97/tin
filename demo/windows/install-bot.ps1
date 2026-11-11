@@ -7,6 +7,10 @@ $Name = 'TinTuc Telegram Bot'
 $Project = (Resolve-Path "$PSScriptRoot\..\..").Path
 Stop-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
 Unregister-ScheduledTask -TaskName $Name -Confirm:$false -ErrorAction SilentlyContinue
+# Stopping the task leaves the bot itself running, and its lock would then make the new one exit.
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+    Where-Object { $_.CommandLine -match 'demo\\telegram_bot\.py' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 if ($Uninstall) { Write-Output "Da go $Name"; exit 0 }
 
 $Python = Join-Path $Project '.venv-demo\Scripts\python.exe'

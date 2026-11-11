@@ -80,6 +80,11 @@ def is_stock(credit):
     return bool(STOCK.search(credit or ''))
 
 
+def is_drawn(credit):
+    """Whether the picture was drawn by Claude for the story (ai_image.py)."""
+    return credit == 'Đồ họa AI'
+
+
 # Footage is reused only when its licence is free: news agencies and broadcasters sell theirs, and
 # a clip handed to the press is not cleared for re-publishing the way a photo is.
 FREE_VIDEO = re.compile(r'wikimedia|nasa|cc0|public domain', re.I)
