@@ -1,4 +1,8 @@
-"""Telegram bot for demo/reup.py: send a video link, approve or revise Claude's script, get the MP4 back.
+"""Telegram bot for demo/reup.py: send a video link, get the MP4 back (and, for the owner, on TikTok).
+
+With "auto_reup" on (the default; /tudong turns it on or off), a link goes straight through: Claude's
+script, voice, render, the video sent back, and the owner's video posted publicly to TikTok, at least
+REUP_GAP minutes after the last post. Off, the script and the post each wait for a button.
 
   .venv-demo/Scripts/python.exe demo/telegram_bot.py
 
@@ -11,7 +15,7 @@ Jobs run one at a time on this machine; renders wait for the daily videos (share
 the machine needs no open port.
 """
 import json, queue, re, sys, threading, time, traceback
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import requests
 
@@ -23,9 +27,11 @@ URL = re.compile(r'https?://\S+')
 POLL = 50  # seconds a getUpdates call waits for messages
 RETRY_BUSY = 60  # seconds before a render tries the lock again
 NEWS_CHECK = 60  # seconds between looks for newly rendered news videos
+REUP_GAP = 30  # minutes after the last TikTok post before a reup goes out by itself (posts close together got refused)
 HELP = ('Gửi link video (X, TikTok, YouTube, Facebook…). Mình tải video, nhờ Claude viết kịch bản, '
-        'gửi bạn duyệt rồi đọc giọng và render.\n\nKhi đang xem kịch bản, nhắn một câu bất kỳ để yêu cầu sửa, '
-        'ví dụ: "ngắn lại", "tiêu đề giật hơn", "bỏ câu thứ ba".')
+        'đọc giọng, render và gửi video lại cho bạn.\n\n'
+        'Chế độ tự động (/tudong để bật hoặc tắt): làm video luôn, không cần duyệt, và video của chủ bot tự đăng TikTok công khai. '
+        'Khi tắt: bot gửi kịch bản để duyệt; nhắn một câu bất kỳ để yêu cầu sửa, ví dụ "ngắn lại", "bỏ câu thứ ba".')
 
 
 def log(*parts):
@@ -107,6 +113,12 @@ class Bot:
             self.chats = [c for c in self.chats if c not in removed]
             self.save_chats()
             return self.say(chat, f'Đã xoá: {", ".join(map(str, removed))}' if removed else 'Không có id nào để xoá (không xoá được chủ).')
+        if command == '/tudong' and chat == self.owner:
+            words = text.split()
+            on = not reup.settings()['auto_reup'] if len(words) < 2 else words[1].lower() in ('on', 'bat', 'bật', '1')
+            set_auto_reup(on)
+            return self.say(chat, '🤖 Đã bật tự động: gửi link là làm video và đăng TikTok luôn.' if on
+                            else '✋ Đã tắt tự động: bot gửi kịch bản để duyệt và hỏi trước khi đăng.')
         if command == '/tin' and chat == self.owner:
             return self.jobs.put(('news_list', chat))  # Claude may write captions first: not on the polling thread
         link = URL.search(text)
@@ -193,25 +205,42 @@ class Bot:
         wd = reup.fetch(link)
         analysis = json.loads((wd / 'analysis.json').read_text())
         self.status(note, f'⏬ Đã tải: dùng {analysis["clip_end"]:.1f} giây đầu.\n✍️ Claude đang xem video và viết kịch bản (1–2 phút)…')
-        self.show_script(chat, wd, reup.write_script(wd))
+        script = reup.write_script(wd)
+        if not reup.settings()['auto_reup']:
+            return self.show_script(chat, wd, script)
+        self.say(chat, '🤖 Tự động, không cần duyệt:\n\n' + reup.script_text(script))
+        self.make(chat, wd, post=True)
 
     def revise(self, chat, wd, request):
         self.say(chat, '✍️ Claude đang sửa kịch bản…')
         self.show_script(chat, wd, reup.write_script(wd, request))
 
-    def make(self, chat, wd):
+    def make(self, chat, wd, post=False):
+        """Voice and render, then the video back to the chat. `post`: the owner's goes to TikTok with no button."""
         note = self.say(chat, '🎙️ Đang đọc giọng và render, khoảng 1–3 phút…')
         try:
             video = reup.produce(wd)
         except BlockingIOError:
             self.status(note, '⏳ Máy đang làm video điểm tin hằng ngày. Sẽ thử lại sau 1 phút.')
-            threading.Timer(RETRY_BUSY, self.jobs.put, args=(('make', chat, wd),)).start()
+            threading.Timer(RETRY_BUSY, self.jobs.put, args=(('make', chat, wd, post),)).start()
             return
-        self.send_video(chat, wd, video)
-        self.status(note, f'✅ Xong: {video.name}')
         if self.current.get(chat) == wd:
             del self.current[chat]
+        self.status(note, f'✅ Xong: {video.name}')
+        if post and chat == self.owner and reup.settings()['tiktok_account']:
+            self.post_soon(chat, wd)  # before the slow upload to Telegram
+            return self.send_video(chat, wd, video)
+        self.send_video(chat, wd, video)
         self.offer_tiktok(chat, wd)
+
+    def post_soon(self, chat, wd):
+        """Post now, or once REUP_GAP minutes have passed since the last post of any kind."""
+        last = tiktok_post.last_post(date.today().isoformat())
+        wait = (last + timedelta(minutes=REUP_GAP) - datetime.now()).total_seconds() if last else 0
+        if wait <= 0:
+            return self.tiktok(chat, wd, False)
+        self.say(chat, f'⏳ Bài TikTok trước đăng lúc {last:%H:%M}; video này sẽ tự đăng lúc {datetime.now() + timedelta(seconds=wait):%H:%M}.')
+        threading.Timer(wait, self.jobs.put, args=(('tiktok', chat, wd, False),)).start()
 
     def offer_tiktok(self, chat, wd, private_too=True):
         """Only the owner gets the buttons, and only once an account is set in config.json."""
@@ -401,6 +430,16 @@ class Bot:
                     self.say(job[1], f'⚠️ Lỗi ({job[0]}): {str(e)[-800:]}')
                 except Exception:
                     log('could not report the error')
+
+
+def set_auto_reup(on):
+    """Save the "auto_reup" switch in config.json."""
+    config_file = reup.demo / 'config.json'
+    config = json.loads(config_file.read_text(encoding='utf8')) if config_file.exists() else {}
+    config.setdefault('reup', {})['auto_reup'] = bool(on)
+    temporary = config_file.with_suffix('.tmp')
+    temporary.write_text(json.dumps(config, ensure_ascii=False, indent=2) + '\n', encoding='utf8')
+    temporary.replace(config_file)
 
 
 def single_instance():

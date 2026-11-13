@@ -57,7 +57,8 @@ def settings():
     return {'voice': reup.get('voice') or config.get('voice', 'Ngọc Huyền'), 'speed': reup.get('speed') or config.get('speed', 1.25),
             'original_volume': reup.get('original_volume', .25), 'label': reup.get('label', 'TIN NÓNG'),
             'tiktok_account': reup.get('tiktok_account', ''), 'tiktok_ai_label': reup.get('tiktok_ai_label', True),
-            'tiktok_auto': reup.get('tiktok_auto', False), 'tiktok_auto_from': reup.get('tiktok_auto_from', '')}
+            'tiktok_auto': reup.get('tiktok_auto', False), 'tiktok_auto_from': reup.get('tiktok_auto_from', ''),
+            'auto_reup': reup.get('auto_reup', True)}  # a link sent to the bot is made and posted with no buttons
 
 
 def dotenv():

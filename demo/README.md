@@ -167,7 +167,9 @@ node demo/render.mjs
 
 ## Đăng lại video (reup) qua Telegram
 
-Gửi link video (X, TikTok, YouTube, Facebook…) cho bot Telegram. Máy tải video, Claude xem các khung hình và viết tiêu đề, kịch bản và caption, rồi bot gửi kịch bản cho bạn duyệt. Bấm **Làm video**: VieNeu đọc giọng, máy render khung dọc 1080×1920 và bot gửi file MP4 lại trong Telegram.
+Gửi link video (X, TikTok, YouTube, Facebook…) cho bot Telegram. Máy tải video, Claude xem các khung hình và viết tiêu đề, kịch bản và caption, VieNeu đọc giọng, máy render khung dọc 1080×1920 và bot gửi file MP4 lại trong Telegram.
+
+**Chế độ tự động** (mặc định bật): gửi link là xong, không có nút duyệt. Bot gửi kịch bản để bạn đọc, làm video luôn, rồi video của chủ bot tự đăng công khai lên TikTok. Nếu bài TikTok gần nhất (tin tức hay reup) mới đăng chưa tới 30 phút, bot báo giờ sẽ đăng và chờ cho đủ 30 phút, vì đăng sát nhau từng bị TikTok từ chối. Bài reup tính vào số bài trong ngày, nên lịch tự đăng tin tức lùi lại cho phù hợp. Người khác được cho dùng bot chỉ nhận video, không đăng lên TikTok của chủ bot. Chủ bot gõ `/tudong` để tắt (bật lại cũng bằng lệnh này, hoặc `/tudong on`, `/tudong off`); trạng thái lưu ở `reup.auto_reup` trong `config.json`. Khi tắt: bot gửi kịch bản để duyệt, bấm **Làm video**, rồi hỏi trước khi đăng như phần dưới. Chế độ tự động không có bước đọc lại kịch bản trước khi đăng: Claude được dặn chỉ nói điều thấy trong video hoặc bài gốc, nhưng nên xem lại video đã đăng.
 
 - Bố cục: nhãn vàng, tiêu đề lớn và dòng nguồn ở trên; video gốc trong khung viền vàng, nền là chính video đó phóng to làm mờ.
 - Phụ đề kiểu TikTok: mỗi lần một dòng chữ to (2–5 tiếng), trắng viền đen, đổi theo giọng đọc; câu mở đầu màu vàng. Claude chia cụm phụ đề cùng lúc viết kịch bản (không tách đôi từ ghép); nếu bạn sửa tay `script.json` khiến cụm không còn khớp câu, máy tự chia lại. Phụ đề được ghi thẳng vào video (`subtitles.ass`, libass).
@@ -210,7 +212,7 @@ Tuỳ chỉnh trong mục `reup` của `demo/config.json` (không bắt buộc):
 
 ### Đăng lên TikTok từ bot
 
-Sau khi gửi MP4, bot hỏi chủ bot có đăng lên TikTok không, kèm caption Claude đã viết. **Đăng TikTok** đăng công khai ngay, **Đăng riêng tư** để xem thử rồi mới bấm đăng công khai. Chỉ chủ bot thấy và dùng được các nút này. Máy đăng bản đầy đủ trong `output/reup/`, không phải bản nén cho Telegram.
+Khi chế độ tự động tắt (hoặc khi đăng tự động lỗi và cần thử lại), sau khi gửi MP4 bot hỏi chủ bot có đăng lên TikTok không, kèm caption Claude đã viết. **Đăng TikTok** đăng công khai ngay, **Đăng riêng tư** để xem thử rồi mới bấm đăng công khai. Chỉ chủ bot thấy và dùng được các nút này. Máy đăng bản đầy đủ trong `output/reup/`, không phải bản nén cho Telegram.
 
 Bot dùng [autotok](https://github.com/makiisthenes/TiktokAutoUploader), đăng nhập bằng trình duyệt, không qua API chính thức của TikTok. TikTok có thể hạn chế hoặc khoá tài khoản đăng kiểu này, nên hãy thử trên tài khoản phụ trước.
 
@@ -256,7 +258,7 @@ Rồi thêm vào `demo/config.json`. Dù kết nối bằng cách nào, cũng c�
 - **Giờ dừng:** từ 23:00 không đăng nữa, video còn lại bị bỏ và bot báo trong Telegram.
 - **Khi lỗi:** TikTok từ chối thì tự thử lại tối đa 2 lần, cách 30–45 phút, rồi bỏ qua video đó. Nếu chưa rõ video đã lên chưa thì không thử lại mà báo để bạn kiểm tra. Chưa đăng nhập thì chờ và báo một lần.
 
-Lịch hôm nay hiện trong tab TikTok và lưu ở `output/daily/<ngày>/tiktok-auto.json`, nên bot hay máy khởi động lại vẫn chạy tiếp. Video reup vẫn đăng bằng nút. Máy và bot phải chạy tới khi đăng xong (có thể tới 23:00), và nội dung không có bước đọc lại nên cần duyệt kỹ trên Sheet.
+Lịch hôm nay hiện trong tab TikTok và lưu ở `output/daily/<ngày>/tiktok-auto.json`, nên bot hay máy khởi động lại vẫn chạy tiếp. Video reup đăng theo chế độ tự động của bot (xem phần reup ở trên). Máy và bot phải chạy tới khi đăng xong (có thể tới 23:00), và nội dung không có bước đọc lại nên cần duyệt kỹ trên Sheet.
 
 Phiên đăng nhập lưu ở `~/.autotok`, ngoài dự án; giữ kín thư mục này vì nó có giá trị như mật khẩu. `tiktok.json` trong thư mục làm việc ghi lại bản đã đăng để cùng một bản render không lên hai lần. Nếu bot báo chưa rõ kết quả, hãy xem trên TikTok trước; nếu video chưa lên, đăng lại bằng lệnh `autotok upload`. Nhãn nội dung AI bật sẵn vì video dùng giọng đọc AI; tắt được trong tab TikTok.
 
