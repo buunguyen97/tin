@@ -16,7 +16,7 @@ from datetime import date as Date, datetime, timedelta
 from pathlib import Path
 
 from edition import BUSY, WORK
-from sheet_to_news import SheetError, approved_stories, fetch_rows, load_config, rows_to_dicts
+from sheet_to_news import LAST_BATCH_HOUR, SheetError, approved_stories, batches_file, fetch_rows, load_config, rows_to_dicts
 
 demo = Path(__file__).resolve().parent
 project = demo.parent
@@ -75,6 +75,9 @@ def cleanup(today, keep_days, now=None):
             if d.is_dir() and DAY_DIR.fullmatch(d.name) and Date.fromisoformat(d.name) < oldest:
                 shutil.rmtree(d)
                 removed.append(d.name)
+            elif d.is_file() and d.name.endswith('-dot.json') and DAY_DIR.fullmatch(d.name[:-9]) and Date.fromisoformat(d.name[:-9]) < oldest:
+                d.unlink()  # the day's hot-news batches (sheet_to_news.batches_file)
+                removed.append(d.name)
     limit = (now or time.time()) - keep_days * 86400
     for pattern in CACHED:  # prepare.py and fetch_images.py touch a file whenever they reuse it
         for f in ASSETS.glob(pattern):
@@ -82,6 +85,15 @@ def cleanup(today, keep_days, now=None):
                 f.unlink()
                 removed.append(f.name)
     return removed
+
+
+def late_flush(config, day, now, state):
+    """Hot-news mode: stories still waiting for a batch once the day's last scan is due get their video anyway,
+    once, even when the last scan wrote nothing (sheet_to_news.assign_batches does the grouping)."""
+    if not config.get('hot_batches') or now.hour < LAST_BATCH_HOUR or state.get('flushed'):
+        return False
+    path = batches_file(day)
+    return path.exists() and bool(json.loads(path.read_text(encoding='utf8')).get('waiting'))
 
 
 def ready_videos(day):
@@ -125,7 +137,8 @@ def main(argv=None):
         return 0
     current = fingerprint(stories)
     max_attempts = settings.get('max_attempts', 2)
-    if not args.force and not should_render(state, current, max_attempts):
+    late = late_flush(config, day, now, state)
+    if not args.force and not late and not should_render(state, current, max_attempts):
         return 0
     log(f'{len(stories)} tin đã duyệt, Sheet đã thay đổi -> tạo video')
     for e in errors:
@@ -141,7 +154,7 @@ def main(argv=None):
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(json.dumps({'fingerprint': current, 'ok': proc.returncode == 0, 'attempts': attempts,
                                       'rendered_at': now.isoformat(), 'stories': len(stories), 'dropped': len(errors),
-                                      'videos': videos}, ensure_ascii=False))
+                                      'videos': videos, 'flushed': late or state.get('flushed', False)}, ensure_ascii=False))
     dropped = f'; loại {len(errors)} tin cũ/trùng' if errors else ''
     if proc.returncode == 0:
         notify('Điểm tin', f'Đã tạo {len(videos)} video ngày {day:%d/%m}{dropped}: ' + ', '.join(videos))

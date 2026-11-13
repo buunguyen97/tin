@@ -235,6 +235,7 @@ def approved_stories(records, day, freshness=None):
             story['published'] = published.strftime('%Y-%m-%d %H:%M')
         stories.append({'story': story, 'row': n, 'sector': normalise(rec['nganh']), 'sector_label': rec['nganh'],
                         'hot': normalise(rec.get('hot', '')) in TRUE,
+                        'very_hot': normalise(rec.get('ly_do_nong', '')).startswith('cuc_nong'),  # the routine's mark: a video of its own
                         'order': _number(rec.get('thu_tu')), 'hot_order': _number(rec.get('thu_tu_hot'))})
     return stories, warnings, errors
 
@@ -251,7 +252,10 @@ def plan_programmes(stories, programmes, day, config=None):
     plans = []
     for prog in programmes:
         f = prog.get('filter', {})
-        if f.get('hot'):
+        if f.get('urls'):  # a hot-news batch: the stories one scan found
+            wanted = set(f['urls'])
+            picked = sorted((s for s in stories if canonical_url(s['story']['url']) in wanted), key=lambda s: (s['hot_order'], s['order'], s['row']))
+        elif f.get('hot'):
             picked = sorted((s for s in stories if s['hot']), key=lambda s: (s['hot_order'], s['order'], s['row']))
         else:
             sectors = programme_sectors(prog)
@@ -286,10 +290,63 @@ def plan_programmes(stories, programmes, day, config=None):
     return plans
 
 
+BATCH_MIN = 2  # hot stories one scan must bring for a video of its own; fewer wait for the next scan
+LAST_BATCH_HOUR = 19  # from this hour whatever waits makes a video: no scan is coming after it
+PARTS = [(11, 'SÁNG'), (14, 'TRƯA'), (18, 'CHIỀU'), (24, 'TỐI')]
+
+
+def batches_file(day):
+    """Which hot stories went into which batch, kept beside the day's folder: the sheet step clears that folder."""
+    return WORK / f'{day.isoformat()}-dot.json'
+
+
+def assign_batches(stories, day, now=None):
+    """Group the day's hot stories by the scan that brought them. A story keeps its batch for the whole day, so a video
+    already made (and maybe posted) is never made again with other stories. New stories make a batch once there are
+    BATCH_MIN of them, or one of them is very hot, or the day's last scans are done; until then they wait."""
+    now = now or datetime.now()
+    path = batches_file(day)
+    state = json.loads(path.read_text(encoding='utf8')) if path.exists() else {'batches': [], 'waiting': []}
+    known = {u for b in state['batches'] for u in b['urls']}
+    new = [s for s in stories if s['hot'] and canonical_url(s['story']['url']) not in known]
+    urls = [canonical_url(s['story']['url']) for s in new]
+    if new and (len(new) >= BATCH_MIN or any(s['very_hot'] for s in new) or now.hour >= LAST_BATCH_HOUR):
+        bid = f'{now:%H%M}'
+        while any(b['id'] == bid for b in state['batches']):
+            bid = f'{int(bid) + 1:04d}'
+        state['batches'].append({'id': bid, 'urls': urls})
+        urls = []
+    state['waiting'] = urls
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding='utf8')
+    return state
+
+
+def batch_programmes(state, stories, config):
+    """One "Tin nóng" video per batch, and one video of its own for each very hot story (left out of its batch's video)."""
+    base = next((p for p in config.get('programmes') or [] if p.get('filter', {}).get('hot')), {})
+    common = {k: v for k, v in base.items() if k in ('accent', 'voice', 'layouts', 'intro_image', 'brand', 'outro', 'intro_accent')}
+    by_url = {canonical_url(s['story']['url']): s for s in stories}
+    progs = []
+    for b in state['batches']:
+        if not b['id'].isdigit():
+            continue  # stories already used another way (the sector videos of the day the switch was made)
+        urls = [u for u in b['urls'] if u in by_url]
+        single = [u for u in urls if by_url[u]['very_hot']]
+        rest = [u for u in urls if u not in single]
+        part = next(name for hour, name in PARTS if int(b['id'][:2]) < hour)
+        if rest:
+            progs.append({**common, 'id': f'tin-nong-{b["id"]}', 'title': f'TIN NÓNG {part}', 'filter': {'urls': rest}, 'min': 1, 'max': 6})
+        for k, u in enumerate(single, 1):
+            progs.append({**common, 'id': f'nong-{b["id"]}-{k}', 'title': 'TIN NÓNG', 'filter': {'urls': [u]}, 'min': 1, 'max': 1})
+    return progs
+
+
 def unassigned_warnings(stories, programmes):
     sectors = set().union(*map(programme_sectors, programmes))
-    return [f'Dòng {s["row"]}: ngành "{s["sector_label"]}" không có video riêng'
-            + (' (vẫn vào video nổi bật)' if s['hot'] else '') for s in stories if s['sector'] not in sectors]
+    # A hot story outside the sectors ("Thời sự") is meant for the round-up alone; only a non-hot one is lost.
+    return [f'Dòng {s["row"]}: ngành "{s["sector_label"]}" không có video riêng nên tin này không vào video nào'
+            for s in stories if s['sector'] not in sectors and not s['hot']]
 
 
 def load_config():
@@ -358,7 +415,12 @@ def main(argv=None):
     except SheetError as e:
         print('LỖI:', e, flush=True)
         return 1
-    warnings += unassigned_warnings(stories, programmes)
+    waiting = []
+    if config.get('hot_batches'):  # videos follow the scans through the day, not the sectors
+        state = assign_batches(stories, day)
+        programmes, waiting = batch_programmes(state, stories, config), state['waiting']
+    else:
+        warnings += unassigned_warnings(stories, programmes)
     plans = plan_programmes(stories, programmes, day, config)
 
     day_dir = WORK / day.isoformat()
@@ -396,7 +458,12 @@ def main(argv=None):
     for p in summary:
         print(f'  {"✓" if p["status"] == "ready" else "–"} {p["title"]}: '
               + (f'{p["count"]} tin' if p['status'] == 'ready' else f'bỏ qua ({p["reason"]})'), flush=True)
+    if waiting:
+        print(f'{len(waiting)} tin nóng mới đang chờ lượt quét sau để đủ một video', flush=True)
     if not ready:
+        if config.get('hot_batches'):  # the first scan of the day has not brought enough yet: nothing is wrong
+            print(f'Chưa có video tin nóng nào cho ngày {day:%d/%m/%Y}', flush=True)
+            return 0
         print(f'LỖI: không có video nào đủ tin cho ngày {day:%d/%m/%Y}', flush=True)
         return 1
     return 0

@@ -333,11 +333,11 @@ function ttBar() {
   if (!tt.account) { dot = 'bad'; title = 'Chưa kết nối tài khoản TikTok'; detail = 'Bot chưa đăng được video nào.'; }
   else if (!tt.auto) { dot = ''; title = 'Tự động đăng đang dừng'; detail = 'Chỉ đăng khi bạn bấm nút.'; }
   else if (!tt.auto_from) { dot = 'bad'; title = 'Chưa đặt ngày bắt đầu'; detail = 'Cần tiktok_auto_from trong config.json.'; }
-  else if (!started) { title = `Sẽ tự đăng từ ngày ${vnDate(tt.auto_from)}`; detail = `Lên ${name}, tối đa ${tt.limit} bài mỗi ngày.`; }
+  else if (!started) { title = `Sẽ tự đăng từ ngày ${vnDate(tt.auto_from)}`; detail = tt.limit == null ? `Lên ${name}, không giới hạn số bài mỗi ngày.` : `Lên ${name}, tối đa ${tt.limit} bài mỗi ngày.`; }
   else {
-    title = `Đang tự đăng lên ${name}: ${s.count}/${s.limit} bài hôm nay`;
+    title = `Đang tự đăng lên ${name}: ${s.limit == null ? s.count : `${s.count}/${s.limit}`} bài hôm nay`;
     detail = s.next_at ? `Bài kế tiếp: ${s.next_id}, sớm nhất lúc ${clock(s.next_at)}.`
-      : !s.finished ? 'Đang chờ render xong.' : s.count >= s.limit ? 'Đã đủ số bài hôm nay.' : 'Hôm nay không còn video chờ đăng.';
+      : !s.finished ? 'Đang chờ render xong.' : s.limit != null && s.count >= s.limit ? 'Đã đủ số bài hôm nay.' : 'Hôm nay không còn video chờ đăng.';
   }
   const button = !tt.account ? '' : tt.auto ? '<button class="stop" id="ttStop">Dừng tự đăng</button>' : '<button id="ttResume">Bật lại tự đăng</button>';
   $('ttBar').innerHTML = `<div class="state"><span class="dot ${dot}"></span><div><b>${esc(title)}</b><small>${esc(detail)}</small></div></div>${button}`;

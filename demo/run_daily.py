@@ -96,7 +96,9 @@ def ready_programmes(day, only, made_with=None):
     if only:
         ready = [p for p in ready if p['id'] in only]
     if not ready:
-        sys.exit('Không có video nào để làm')
+        if only:
+            sys.exit('Không có video nào để làm')
+        return []  # hot-news mode: no batch yet today
     if made_with is not None:
         kept = [p['id'] for p in ready if p.get('unchanged') and still_good(day, p['id'], made_with)]
         if kept:

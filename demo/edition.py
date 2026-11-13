@@ -62,7 +62,7 @@ def default_programmes():
               'intro_accent': '#4ADE80'}]
     for sector, accent in zip(SECTORS, SECTOR_ACCENTS):
         progs.append({'id': slug(sector), 'title': 'ĐIỂM TIN ' + sector.upper(),
-                      'filter': {'nganh': sector}, 'min': 2, 'max': 5, 'accent': accent,
+                      'filter': {'nganh': sector}, 'min': 2, 'max': 6, 'accent': accent,
                       'intro': 'Điểm tin ' + sector.lower().replace(' – ', ', '),
                       'intro_hook': 'Cùng điểm qua những tin đáng chú ý nhất.',
                       'intro_title': ['ĐIỂM TIN', sector.upper()], 'intro_tagline': 'NHỮNG TIN ĐÁNG CHÚ Ý NHẤT',

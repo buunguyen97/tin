@@ -1,8 +1,9 @@
 """Telegram bot for demo/reup.py: send a video link, get the MP4 back (and, for the owner, on TikTok).
 
 With "auto_reup" on (the default; /tudong turns it on or off), a link goes straight through: Claude's
-script, voice, render, the video sent back, and the owner's video posted publicly to TikTok, at least
-REUP_GAP minutes after the last post. Off, the script and the post each wait for a button.
+script, voice, render, the video sent back, and the owner's video queued for a public TikTok post: one at a
+time, tiktok_post.REUP_GAP minutes apart, after any hot-news video waiting, never after STOP_HOUR (it waits for
+the morning). Off, the script and the post each wait for a button.
 
   .venv-demo/Scripts/python.exe demo/telegram_bot.py
 
@@ -27,7 +28,6 @@ URL = re.compile(r'https?://\S+')
 POLL = 50  # seconds a getUpdates call waits for messages
 RETRY_BUSY = 60  # seconds before a render tries the lock again
 NEWS_CHECK = 60  # seconds between looks for newly rendered news videos
-REUP_GAP = 30  # minutes after the last TikTok post before a reup goes out by itself (posts close together got refused)
 HELP = ('Gửi link video (X, TikTok, YouTube, Facebook…). Mình tải video, nhờ Claude viết kịch bản, '
         'đọc giọng, render và gửi video lại cho bạn.\n\n'
         'Chế độ tự động (/tudong để bật hoặc tắt): làm video luôn, không cần duyệt, và video của chủ bot tự đăng TikTok công khai. '
@@ -233,14 +233,20 @@ class Bot:
         self.send_video(chat, wd, video)
         self.offer_tiktok(chat, wd)
 
-    def post_soon(self, chat, wd):
-        """Post now, or once REUP_GAP minutes have passed since the last post of any kind."""
-        last = tiktok_post.last_post(date.today().isoformat())
-        wait = (last + timedelta(minutes=REUP_GAP) - datetime.now()).total_seconds() if last else 0
-        if wait <= 0:
-            return self.tiktok(chat, wd, False)
-        self.say(chat, f'⏳ Bài TikTok trước đăng lúc {last:%H:%M}; video này sẽ tự đăng lúc {datetime.now() + timedelta(seconds=wait):%H:%M}.')
-        threading.Timer(wait, self.jobs.put, args=(('tiktok', chat, wd, False),)).start()
+    def post_soon(self, chat, wd, now=None):
+        """Queue the video for TikTok; the watcher posts it in its slot (see tiktok_post.book_reup)."""
+        now = now or datetime.now()
+        at = tiktok_post.book_reup(wd.name, chat, now)
+        if at - now < timedelta(minutes=2):
+            return self.say(chat, '📤 Video này sẽ đăng TikTok ngay.')
+        when = f'{at:%H:%M}' + (' sáng mai' if at.date() > now.date() else '')
+        self.say(chat, f'⏳ Video này sẽ tự đăng TikTok khoảng {when} (cách bài trước ít nhất {tiktok_post.REUP_GAP} phút; '
+                       'nếu có video tin nóng đang chờ thì tin nóng đăng trước).')
+
+    def post_reups(self, now=None):
+        entry = tiktok_post.due_reup(now)
+        if entry:
+            self.jobs.put(('tiktok', entry['chat'], reup.REUP / entry['name'], False))
 
     def offer_tiktok(self, chat, wd, private_too=True):
         """Only the owner gets the buttons, and only once an account is set in config.json."""
@@ -311,7 +317,8 @@ class Bot:
         limit = tiktok_post.daily_limit(reup.settings()['tiktok_auto_from'], day)
         left = tiktok_post.leftovers(day, videos, limit=limit)
         if left and tiktok_post.warn_once(day, 'late'):
-            reason = f'Đã đủ {limit} bài của hôm nay' if tiktok_post.posts_today(day) >= limit else f'Đã qua {tiktok_post.STOP_HOUR} giờ'
+            full = limit is not None and tiktok_post.posts_today(day) >= limit
+            reason = f'Đã đủ {limit} bài của hôm nay' if full else f'Đã qua {tiktok_post.STOP_HOUR} giờ'
             self.say(self.owner, f"🌙 {reason}, hôm nay không đăng: {', '.join(left)}.")
         item = tiktok_post.next_auto(day, videos, limit=limit)
         if not item:
@@ -378,14 +385,17 @@ class Bot:
             next_at = tiktok_post.read_auto(day).get('next_at', '')
             limit = tiktok_post.daily_limit(conf['tiktok_auto_from'], day)
             count = tiktok_post.posts_today(day)
-            ahead = f'\nĐã đủ {limit} bài của hôm nay.' if count >= limit else \
-                f'\nBài {count}/{limit} hôm nay, bài kế tiếp khoảng {next_at[11:16]}.' if left else '\nĐã đăng hết video hôm nay.'
+            done = f'{count}/{limit}' if limit is not None else str(count)
+            ahead = f'\nĐã đủ {limit} bài của hôm nay.' if limit is not None and count >= limit else \
+                f'\nBài {done} hôm nay, bài kế tiếp khoảng {next_at[11:16]}.' if left else '\nĐã đăng hết video hôm nay.'
         self.status(note, f"✅ Đã đăng {pid}{' ở chế độ riêng tư' if private else ''} (mã video {video_id}).{ahead}")
         if private:
             self.offer_news_video(item, conf['tiktok_account'], private_too=False)
 
     def machine_needed(self):
         conf, day = reup.settings(), date.today().isoformat()
+        if tiktok_post.reups_waiting():
+            return True
         if not (conf['tiktok_auto'] and conf['tiktok_account'] and conf['tiktok_auto_from'] and day >= conf['tiktok_auto_from']):
             return False
         return tiktok_post.machine_needed(day, tiktok_post.news_videos(day), tiktok_post.daily_limit(conf['tiktok_auto_from'], day))
@@ -396,6 +406,7 @@ class Bot:
             time.sleep(NEWS_CHECK)
             try:
                 self.offer_news()
+                self.post_reups()
                 needed = self.machine_needed()
                 if needed != awake:
                     keep_awake(needed)

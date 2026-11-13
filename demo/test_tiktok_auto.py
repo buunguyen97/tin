@@ -185,9 +185,9 @@ class AutoTest(unittest.TestCase):
 
     # --- daily limit ---------------------------------------------------------------------------------
 
-    def test_limit_rises_week_by_week(self):
-        limits = {d: tiktok_post.daily_limit('2026-11-07', d) for d in ('2026-11-07', '2026-11-13', '2026-11-14', '2026-11-20', '2026-11-21', '2027-01-01')}
-        self.assertEqual(list(limits.values()), [3, 3, 5, 5, 7, 7])
+    def test_no_daily_cap(self):
+        self.assertIsNone(tiktok_post.daily_limit('2026-11-07', '2026-11-13'))
+        self.assertIsNotNone(tiktok_post.next_auto(self.DAY, self.videos(), self.NOW, limit=None))
 
     def test_stops_at_the_limit_and_reports_the_rest(self):
         now = self.NOW
@@ -213,6 +213,7 @@ class AutoTest(unittest.TestCase):
 
     def test_bot_says_when_the_day_is_full(self):
         self.conf['tiktok_auto_from'] = self.DAY
+        self.enterContext(mock.patch.object(tiktok_post, 'DAILY_LIMIT', 3))
         for video in self.videos()[:3]:
             self.posted(video, self.NOW)
         self.bot.offer_news()
@@ -312,12 +313,15 @@ class AutoTest(unittest.TestCase):
     def test_may_sleep_once_everything_is_posted(self):
         for video in self.videos():
             self.posted(video, self.NOW)
-        self.assertFalse(self.needed(14, limit=99))
+        with mock.patch.object(tiktok_post, 'hot_news', return_value=False):  # sector videos: no scan comes later
+            self.assertFalse(self.needed(14, limit=99))
+        self.assertTrue(self.needed(14, limit=99))  # hot-news scans: the afternoon's video is still to come
 
     def test_awake_for_the_render_in_the_morning_only(self):
         (self.work / self.DAY / 'auto-render.json').unlink()
         self.assertTrue(self.needed(8))
-        self.assertFalse(self.needed(13))
+        self.assertTrue(self.needed(13))  # later scans of the day still bring videos
+        self.assertFalse(self.needed(21))
 
     def test_bot_does_not_hold_the_machine_when_off_or_not_started(self):
         for change in ({'tiktok_auto': False}, {'tiktok_account': ''}, {'tiktok_auto_from': '2999-01-01'}):
@@ -422,6 +426,58 @@ class AutoTest(unittest.TestCase):
             self.bot.make(self.OWNER, wd)
         send.assert_not_called()
         self.assertEqual(len(self.offers()), 1)
+
+    # --- reups sent to the bot ------------------------------------------------------------------
+
+    def news_off(self):
+        self.conf['tiktok_auto'] = False
+
+    def test_reups_sent_together_get_their_own_slots(self):
+        times = [tiktok_post.book_reup(n, self.OWNER, self.NOW + timedelta(minutes=i)) for i, n in enumerate('abc')]
+        self.assertEqual(times, [self.NOW, self.NOW + timedelta(minutes=30), self.NOW + timedelta(minutes=60)])
+
+    def test_a_reup_slot_counts_from_the_last_post(self):
+        self.posted(self.pick(), self.NOW)
+        self.assertEqual(tiktok_post.book_reup('a', self.OWNER, self.NOW + timedelta(minutes=10)), self.NOW + timedelta(minutes=30))
+
+    def test_reups_go_out_one_at_a_time(self):
+        self.news_off()
+        for n in 'ab':
+            tiktok_post.book_reup(n, self.OWNER, self.NOW)
+        self.assertEqual(tiktok_post.due_reup(self.NOW)['name'], 'a')
+        self.assertIsNone(tiktok_post.due_reup(self.NOW + timedelta(minutes=29)))  # a may still be uploading
+        self.assertEqual(tiktok_post.due_reup(self.NOW + timedelta(minutes=30))['name'], 'b')
+        self.assertIsNone(tiktok_post.due_reup(self.NOW + timedelta(hours=2)))
+
+    def test_waiting_news_goes_before_a_reup(self):
+        tiktok_post.book_reup('a', self.OWNER, self.NOW)
+        self.assertIsNone(tiktok_post.due_reup(self.NOW))
+        self.news_off()  # as if every news video had gone out
+        self.assertEqual(tiktok_post.due_reup(self.NOW)['name'], 'a')
+
+    def test_a_late_reup_waits_for_the_morning(self):
+        self.news_off()
+        night = self.NOW.replace(hour=23, minute=30)
+        at = tiktok_post.book_reup('a', self.OWNER, night)
+        self.assertEqual(at, (night + timedelta(days=1)).replace(hour=7, minute=0))
+        self.assertIsNone(tiktok_post.due_reup(night + timedelta(minutes=40)))
+        self.assertEqual(tiktok_post.due_reup(at)['name'], 'a')
+
+    def test_bot_queues_a_reup_and_the_watcher_posts_it(self):
+        self.news_off()
+        self.bot.post_soon(self.OWNER, self.root / 'r1', self.NOW)
+        self.bot.post_soon(self.OWNER, self.root / 'r2', self.NOW)
+        self.assertIn('khoảng 09:30', self.said('sẽ tự đăng')[0].kwargs['text'])
+        self.bot.post_reups(self.NOW)
+        self.assertEqual(self.bot.jobs.get_nowait()[:3], ('tiktok', self.OWNER, telegram_bot.reup.REUP / 'r1'))
+        self.bot.post_reups(self.NOW + timedelta(minutes=1))
+        self.assertTrue(self.bot.jobs.empty())
+
+    def test_queued_reups_keep_the_machine_awake(self):
+        self.news_off()
+        tiktok_post.book_reup('a', self.OWNER, self.NOW)
+        with mock.patch.object(tiktok_post, 'reups_waiting', return_value=True):
+            self.assertTrue(self.bot.machine_needed())
 
     def test_schedule_view_for_studio(self):
         self.posted(self.pick(), self.NOW)

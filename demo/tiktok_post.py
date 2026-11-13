@@ -39,15 +39,17 @@ tags là đúng 2 hashtag chủ đề chung, phổ biến, ngắn, tiếng Việ
 CAPTION_MOST = 180
 TEMPLATE_WORDS = ('điểm tin', 'cập nhật', 'đáng chú ý', 'hôm nay có gì', 'theo dõi', 'bỏ lỡ', 'bạn nghĩ', 'tâm điểm', 'xôn xao', 'nổi bật')
 EMOJI = re.compile('[\U0001F300-\U0001FAFF☀-➿️]')
-RAMP = [(7, 3), (14, 5)]  # for an account new to automatic posting: (days since the start, most posts a day)
-FULL_LIMIT = 7
+DAILY_LIMIT = None  # most automatic posts a day; None: no cap, only the gap and STOP_HOUR space them out
 GAP_MINUTES = (90, 120)  # between automatic posts, a new random gap each time
 RETRY_MINUTES = (30, 45)  # before trying again after a failure
 RETRIES = 2  # further tries for a video TikTok refused
 SETTLE_MINUTES = 30  # the sheet often changes soon after a render: wait this long with no new render
 STOP_HOUR = 23  # nothing goes out by itself from this hour; the next morning the news is old
 FIRST = 'tong-hop'  # always the day's first automatic post
-WAKE_HOUR, RENDER_END_HOUR = 7, 12  # the default auto_render window
+WAKE_HOUR, RENDER_END_HOUR = 7, 21  # the auto_render window
+STALE_HOURS = 6  # a hot-news video not posted this long after its scan is old news: it is left out
+REUP_GAP = 30  # minutes between a reup sent to the bot and the post before it, of any kind (posts close together got refused)
+BATCH_ID = re.compile(r'^(tin-nong|nong)-(\d{2})(\d{2})(?:-\d+)?$')
 
 
 class PostError(Exception):
@@ -148,7 +150,7 @@ def news_caption(edition):
     elif len(stories) > 1:
         text += f' và {len(stories) - 1} tin khác'
     programme = edition.get('programme', '')
-    tags = ['tintuc'] + ([programme.replace('-', '')] if programme and programme != FIRST else [])
+    tags = ['tintuc'] + (['tinnong'] if batch_of(programme) else [programme.replace('-', '')] if programme and programme != FIRST else [])
     return compose_caption(text, tags, edition)
 
 
@@ -343,9 +345,8 @@ def later(now, span):
 
 
 def daily_limit(start, day):
-    """Most posts allowed on `day`, rising week by week from the day automatic posting started."""
-    days = (date.fromisoformat(day) - date.fromisoformat(start)).days
-    return next((most for span, most in RAMP if days < span), FULL_LIMIT)
+    """Most posts allowed on `day`; None means no cap."""
+    return DAILY_LIMIT
 
 
 def posts_today(day):
@@ -367,6 +368,78 @@ def last_post(day):
     return max(times, default=None)
 
 
+# --- reups sent to the bot: one queue, a slot each, news first ----------------------------------------
+
+def reup_queue_file():
+    return WORK / 'reup-queue.json'
+
+
+def read_reup_queue():
+    path = reup_queue_file()
+    return json.loads(path.read_text(encoding='utf8')) if path.exists() else {'queue': []}
+
+
+def save_reup_queue(state):
+    path = reup_queue_file()
+    temporary = path.with_suffix('.tmp')
+    temporary.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding='utf8')
+    temporary.replace(path)
+
+
+def posting_hours(when):
+    """`when`, or the first moment after it inside the posting hours (WAKE_HOUR until STOP_HOUR)."""
+    if when.hour >= STOP_HOUR:
+        when = datetime.combine(when.date() + timedelta(days=1), datetime.min.time())
+    return when.replace(hour=WAKE_HOUR, minute=0, second=0, microsecond=0) if when.hour < WAKE_HOUR else when
+
+
+def book_reup(name, chat, now=None):
+    """Put a finished reup in the queue and return its expected post time: REUP_GAP after the last post and
+    after the last booked reup, inside the posting hours. A hot-news video waiting at that time goes first."""
+    now = now or datetime.now()
+    gap = timedelta(minutes=REUP_GAP)
+    with auto_lock:
+        state = read_reup_queue()
+        state['queue'] = [e for e in state['queue'] if e['name'] != name]
+        last = last_post(now.date().isoformat())
+        times = [now, last + gap if last else None,
+                 *(datetime.fromisoformat(e['at']) + gap for e in state['queue'][-1:])]
+        at = posting_hours(max(t for t in times if t))
+        state['queue'].append({'name': name, 'chat': chat, 'at': at.isoformat(timespec='seconds')})
+        save_reup_queue(state)
+        return at
+
+
+def news_waiting(day, now):
+    """Is a news video waiting to go out by itself today? Reups wait for it: each post pushes the next news video back."""
+    conf = reup.settings()
+    if not (conf['tiktok_auto'] and conf['tiktok_account'] and conf['tiktok_auto_from'] and day >= conf['tiktok_auto_from']):
+        return False
+    return render_finished(day) and bool(waiting_videos(day, news_videos(day), read_auto(day), now))
+
+
+def due_reup(now=None):
+    """The queued reup to post now, taken off the queue, or None."""
+    now = now or datetime.now()
+    gap, day = timedelta(minutes=REUP_GAP), now.date().isoformat()
+    with auto_lock:
+        state = read_reup_queue()
+        if not state['queue'] or posting_hours(now) != now or now < datetime.fromisoformat(state['queue'][0]['at']):
+            return None
+        last = max(filter(None, [last_post(day), datetime.fromisoformat(state['sent']) if state.get('sent') else None]), default=None)
+        if (last and now < last + gap) or news_waiting(day, now):
+            return None
+        entry = state['queue'].pop(0)
+        state['sent'] = now.isoformat(timespec='seconds')  # its post may wait behind a render: the next one counts from here
+        save_reup_queue(state)
+        return entry
+
+
+def reups_waiting(now=None):
+    now = now or datetime.now()
+    return posting_hours(now) == now and bool(read_reup_queue()['queue'])
+
+
 def settled_at(day):
     """When the day's videos count as final: some time after the last finished render. None while there is no finished render."""
     return datetime.fromtimestamp((WORK / day / 'auto-render.json').stat().st_mtime) + timedelta(minutes=SETTLE_MINUTES) if render_finished(day) else None
@@ -383,14 +456,30 @@ def ready_at(day, state):
     return max(t for t in times if t)
 
 
-def waiting_videos(day, videos, state):
+def batch_of(pid):
+    """(is it a very hot story's own video, minutes after midnight of its scan) for a hot-news video, else None."""
+    found = BATCH_ID.match(pid or '')
+    return (found[1] == 'nong', int(found[2]) * 60 + int(found[3])) if found else None
+
+
+def stale(pid, now=None):
+    """A hot-news video whose scan is more than STALE_HOURS old."""
+    batch, now = batch_of(pid), now or datetime.now()
+    return bool(batch) and now.hour * 60 + now.minute - batch[1] > STALE_HOURS * 60
+
+
+def waiting_videos(day, videos, state, now=None):
     done, failed, skipped = posted_programmes(day), state.get('given_up', {}), state.get('skipped', [])
-    return [v for v in videos if v['id'] not in done and v['id'] not in failed and v['id'] not in skipped]
+    return [v for v in videos if v['id'] not in done and v['id'] not in failed and v['id'] not in skipped and not stale(v['id'], now)]
 
 
 def build_order(state, videos):
-    """The round-up first, then the rest in an order drawn once for the day."""
+    """The round-up first, then the rest in an order drawn once for the day. Hot-news videos instead go by news value:
+    a very hot story's own video first, then the newest scan's video."""
     order = state.get('order', [])
+    ids = list(dict.fromkeys(order + [v['id'] for v in videos]))
+    if any(batch_of(i) for i in ids):
+        return sorted(ids, key=lambda i: (0, not batch_of(i)[0], -batch_of(i)[1]) if batch_of(i) else (1, 0, 0))
     fresh = [v['id'] for v in videos if v['id'] not in order]
     random.shuffle(fresh)
     # The round-up takes its stories from the other videos: the ones repeating most of it go last, so a day that
@@ -424,7 +513,7 @@ def next_auto(day, videos, now=None, limit=None):
     with auto_lock:
         state = read_auto(day)
         ready = ready_at(day, state)
-        waiting = waiting_videos(day, videos, state)
+        waiting = waiting_videos(day, videos, state, now)
         if now.hour >= STOP_HOUR or not ready or now < ready or not waiting or (limit is not None and posts_today(day) >= limit):
             return None
         order = build_order(state, videos)
@@ -464,9 +553,21 @@ def machine_needed(day, videos, limit, now=None):
     now = now or datetime.now()
     if not WAKE_HOUR <= now.hour < STOP_HOUR:
         return False
-    if not render_finished(day):
-        return now.hour < RENDER_END_HOUR  # after this no render is coming today
-    return posts_today(day) < limit and bool(waiting_videos(day, videos, read_auto(day)))
+    if limit is not None and posts_today(day) >= limit:
+        return False  # nothing more goes out today
+    if now.hour < RENDER_END_HOUR and (not render_finished(day) or hot_news(videos)):
+        return True  # a render is coming, or later scans of the day bring new hot-news videos
+    return render_finished(day) and bool(waiting_videos(day, videos, read_auto(day), now))
+
+
+def hot_news(videos):
+    """Is today's run the hot-news kind, whose scans come through the day?"""
+    try:
+        if json.loads(CONFIG.read_text(encoding='utf8')).get('hot_batches'):
+            return True
+    except (OSError, ValueError):
+        pass
+    return any(batch_of(v['id']) for v in videos)
 
 
 def warn_once(day, reason):
@@ -504,6 +605,8 @@ def auto_view(day, videos, limit=None):
             status = 'skipped'
         elif i not in present:
             continue  # no finished video of this programme
+        elif stale(i):
+            status = 'limited'  # old news by now: it will not go out
         else:
             going += 1
             status = 'limited' if slots is not None and going > slots else 'waiting'
