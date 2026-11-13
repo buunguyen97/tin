@@ -201,7 +201,7 @@ Viết kịch bản theo các quy tắc:
 - Caption để đăng TikTok: viết như người thật gõ nhanh, 1 đến 2 câu ngắn, viết hoa thường bình thường, nói thẳng vào sự việc.
   Không emoji, không câu hỏi hay kêu gọi tương tác, không văn mẫu ("khoảnh khắc", "gây chú ý", "gây xôn xao", "không thể bỏ lỡ").
   Thêm 2 đến 3 hashtag tiếng Việt không dấu ở cuối.
-- Phụ đề: chia mỗi câu thành các cụm từ 3 đến 5 tiếng, không quá 20 ký tự, hiện lần lượt trên màn hình. Ngắt ở chỗ tự nhiên
+- Phụ đề: chia mỗi câu thành các cụm từ 3 đến 5 tiếng, không quá 18 ký tự, hiện lần lượt trên màn hình. Ngắt ở chỗ tự nhiên
   (sau dấu câu, trước "của", "và", "đang"…), không tách đôi một từ ("máy bay", "người đàn ông", "tuần hành" nằm gọn trong một cụm).
   Ghép các cụm của một câu lại phải đúng nguyên câu đó, giữ cả dấu câu.
 {revision}
@@ -336,14 +336,17 @@ def frames(seconds):
     return math.ceil(seconds * FPS - 1e-6)
 
 
+CLIP_TOP = 480  # under the tag and title, which start below TikTok's tabs (prepare.SAFE)
+
+
 def box(width, height):
     """Where the clip sits in the 1080x1920 frame: x, y, w, h. Portrait clips fill a framed column
     under the title; landscape ones run edge to edge below it."""
     if width >= height:
         h = round(1080 * height / width / 2) * 2
-        return 0, 520, 1080, h
-    w = min(792, round(1408 * width / height / 2) * 2); h = round(w * height / width / 2) * 2
-    return (1080 - w) // 2, 420, w, h
+        return 0, CLIP_TOP + 20, 1080, h
+    w = min(764, round(1360 * width / height / 2) * 2); h = round(w * height / width / 2) * 2
+    return (1080 - w) // 2, CLIP_TOP, w, h
 
 
 async def voice_lines(sentences, conf):
@@ -426,7 +429,9 @@ def mix_audio(src, voice, analysis, total, stretch, volume, out):
 
 # Subtitles as on TikTok news clips: one big line of a few words at a time, white with a black outline,
 # following the voice. One line: a second one would often break a compound word ("tuần | hành").
-SUB_SIZE, SUB_WIDTH, SUB_WORDS = 86, 900, 5  # px of Be Vietnam Pro ExtraBold, clear of TikTok's button rail; words at once
+# Centred in TikTok's safe area (prepare.SAFE: x 84-880), not the frame: the button rail covers the right.
+SUB_SIZE, SUB_WIDTH, SUB_WORDS = 80, 780, 5  # px of Be Vietnam Pro ExtraBold; words at once
+SUB_X = (84 + 880) // 2
 PUNCTUATION = re.compile(r'[,;:.!?…]$')
 
 
@@ -534,7 +539,7 @@ def write_subtitles(cue_list, clip, out):
     for start, end, words, k in cue_list:
         text = ' '.join(words).replace('{', '(').replace('}', ')')
         colour = '\\c&H1FD2FF&' if k == 0 else ''  # YELLOW, as BGR
-        lines.append(f'Dialogue: 0,{stamp(start)},{stamp(end)},Sub,,0,0,0,,{{\\pos(540,{at}){colour}\\fscx88\\fscy88\\t(0,90,\\fscx100\\fscy100)}}{text}')
+        lines.append(f'Dialogue: 0,{stamp(start)},{stamp(end)},Sub,,0,0,0,,{{\\pos({SUB_X},{at}){colour}\\fscx88\\fscy88\\t(0,90,\\fscx100\\fscy100)}}{text}')
     out.write_text('\n'.join(lines) + '\n', encoding='utf8')
 
 
@@ -546,8 +551,9 @@ def plain(value):
 def overlay(script, clip):
     """Title, tag and source above the clip and a yellow frame round it; the subtitles are in the video."""
     from prepare import W, H, INK, YELLOW, FAMILY, font_style, text, fit, text_width
-    x, y, w, h = clip; left = 80; top = 160
-    lines = [plain(l) for l in script['title']]; size = min(fit(l, 70, 900, 920) for l in lines)
+    from prepare import SAFE
+    x, y, w, h = clip; left, right, top = SAFE['left'], SAFE['right'], SAFE['top']  # clear of TikTok's tabs, rail and side crop
+    lines = [plain(l) for l in script['title']]; size = min(fit(l, 64, 900, right - left) for l in lines)
     chip = plain(script['label']); tw, th, sk = round(text_width(chip, 30, 800, True) + 56), 54, 16
     source = f'Nguồn: {plain(script["source"])}'
     s = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">', font_style(),
@@ -557,7 +563,7 @@ def overlay(script, clip):
          f'<path d="M{left + sk} {top}H{left + sk + tw}L{left + tw} {top + th}H{left}Z" fill="{YELLOW}"/>',  # slanted tag, as on the intro card
          text(round(left + sk / 2 + tw / 2), top + 38, chip, 30, INK, 800, 'middle', ' font-style="italic"'),
          # the source on the tag's row, clear of the original's own logo at the top of the clip
-         text(1000, top + 38, source, fit(source, 26, 700, 1000 - left - tw - 40), '#FFFFFF', 700, 'end', ' fill-opacity=".9"')]
+         text(right, top + 38, source, fit(source, 26, 700, right - left - tw - 30), '#FFFFFF', 700, 'end', ' fill-opacity=".9"')]
     cy = top + th + 12
     for line in lines:
         cy += round(size * 1.08)
