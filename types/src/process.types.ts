@@ -83,7 +83,15 @@ export const processedManuscriptSchema = z.object({
         .array(z.union([imageSchema, videoSchema, mapSchema]))
         .optional(),
       // Static graphic (e.g. a transparent SVG card) drawn above the animated asset.
-      overlay: z.object({ url: z.string().url() }).optional(),
+      overlay: z
+        .object({
+          url: z.string().url(),
+          base: z.string().url().optional(), // still layer under `url`
+          reveal: z.boolean().optional(), // `url` fades in from the top
+          // layers above `url` that come in later, each at its second of the segment
+          steps: z.array(z.object({ url: z.string().url(), at: z.number() })).optional(),
+        })
+        .optional(),
       start: z.number(),
       end: z.number(),
     })

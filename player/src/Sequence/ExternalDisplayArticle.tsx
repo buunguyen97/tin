@@ -1,8 +1,9 @@
 import { type FC, type ReactElement } from "react";
-import { AbsoluteFill, Audio, Img, Sequence, Series } from "remotion";
+import { Audio, Sequence, Series } from "remotion";
 import type { z } from "zod";
 import { playerSchema, type processedManuscriptSchema } from "@videofy/types";
 import ArticleProgress from "../Components/ArticleProgress";
+import { CardOverlay } from "../Components/CardOverlay";
 import { ImageAnimation } from "../Components/ImageAnimation";
 import { MapComponent } from "../Components/Map/MapComponent";
 import PhotoCredits from "../Components/PhotoCredits";
@@ -186,14 +187,7 @@ export const ExternalDisplayArticle: FC<Props> = ({
                 />
               )}
 
-              {segment.overlay && (
-                <AbsoluteFill>
-                  <Img
-                    src={segment.overlay.url}
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                  />
-                </AbsoluteFill>
-              )}
+              {segment.overlay && <CardOverlay overlay={segment.overlay} />}
 
               {primaryAsset && primaryAsset.type !== "map" && primaryAsset.byline && (
                 <PhotoCredits byline={primaryAsset.byline} config={config} />

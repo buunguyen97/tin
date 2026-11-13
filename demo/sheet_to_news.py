@@ -16,11 +16,12 @@ from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 from edition import WORK, default_programmes, normalise, save_edition, spoken_date
+import wording
 
 root = Path(__file__).resolve().parent
 CONFIG_FILE = Path(os.environ.get('DIEMTIN_CONFIG', root / 'config.json'))
 
-REQUIRED = ['nganh', 'chuyen_muc', 'tieu_de_1', 'so_lieu', 'don_vi', 'nguon', 'url', 'kich_ban']
+REQUIRED = ['nganh', 'chuyen_muc', 'tieu_de_1', 'nguon', 'url', 'kich_ban']  # so_lieu, don_vi: a story may have no figure worth a box
 APPROVED = {'da_duyet', 'duyet', 'ok', 'approved'}
 TRUE = {'true', 'x', 'co', '1', 'yes', 'hot', 'v'}
 NO_IMAGE = {'none', 'khong', 'khong_co', 'no'}
@@ -107,6 +108,38 @@ def _number(value):
         return float('inf')
 
 
+OUTLETS = ['VnExpress', 'CafeF', 'Tuổi Trẻ', 'Thanh Niên', 'VnEconomy', 'Dân trí', 'Báo Chính phủ', 'Pháp Luật TP HCM', 'Pháp Luật',
+           'BBC', 'Reuters', 'AP', 'Associated Press', 'AFP', 'Al Jazeera', 'Deutsche Welle', 'DW', 'The Guardian', 'Guardian',
+           'New York Times', 'The New York Times', 'NYT', 'France 24', 'South China Morning Post', 'SCMP', 'NPR', 'ABC News', 'CNBC', 'CNN']
+
+
+def unattributed(script, source):
+    """The script without "Theo <outlet>," opening a sentence: the card already names the outlet, and saying it in every
+    story costs a second each. "Theo Bộ Công an," stays: that names who said it, not where it was read."""
+    named = [name.strip() for name in re.split(r'[,;/]| và ', source.split(' • ')[0]) if name.strip()]
+    outlets = [re.escape(name) for name in sorted(set(named + OUTLETS), key=len, reverse=True)]  # "DW" in the source, "Deutsche Welle" read out
+    cut = re.compile(r'(^|(?<=[.!?…] ))Theo (?:báo |tờ |hãng tin |đài )?(?:' + '|'.join(outlets) + r')(?:, dẫn (?:lại |nguồn |tin )?[^,.]{2,40})?, (\w)', re.I)
+    return cut.sub(lambda m: m[1] + m[2].upper(), script)
+
+
+def figure_of(number, unit):
+    """The card's big number and its label, or ('', '') when the number is not the story's: someone's age, or no label.
+    "tuổi, tuổi của quân nhân" (the unit written twice) loses the first one."""
+    unit = re.sub(r'^(.{2,20}?)\s*,\s*(?=\1\b)', '', unit.strip(), flags=re.I)
+    version = re.fullmatch(r'\d+(?:\.\d+){2,}', number.strip()) and not re.fullmatch(r'\d{1,3}(?:\.\d{3})+', number.strip())
+    if not number.strip() or not unit or normalise(unit).startswith('tuoi') or version:  # "27.2.1" is an iOS release, not a quantity
+        return '', ''
+    return number.strip(), unit
+
+
+def same_edition(path, edition):
+    """Is the news.json at `path` this very edition? Then its folder (photos, voice, cards) and its video still stand."""
+    try:
+        return json.loads(Path(path).read_text()) == json.loads(json.dumps(edition))
+    except (OSError, ValueError):
+        return False
+
+
 def approved_stories(records, day, freshness=None):
     """Approved, valid rows for `day` as stories, plus warnings and errors.
 
@@ -155,22 +188,35 @@ def approved_stories(records, day, freshness=None):
         if repeat:
             errors.append(f'{label}: trùng sự kiện với {repeat} (cùng số liệu, tiêu đề gần giống); bỏ qua')
             continue
+        shown = ('tieu_de_1', 'tieu_de_2', 'don_vi', 'chi_tiet_1', 'chi_tiet_2', 'kich_ban')  # what the video says or shows
+        barred = next((s for col in shown for s in wording.money_near_barred(rec.get(col, ''))), None)
+        if barred:  # the story still airs: wording never costs a story
+            warnings.append(f'{label}: có câu nêu tiền cạnh ma túy, vũ khí, mại dâm hoặc cờ bạc ("{barred[:70]}")')
         recent_events.append((f'dòng {n}', key))
         for col, limit in LIMITS.items():
             if len(rec.get(col, '')) > limit:
                 warnings.append(f'{label}: "{col}" dài {len(rec[col])} ký tự (nên ≤ {limit}), có thể tràn khung')
-        if re.search(r'\d', rec['kich_ban']):
-            warnings.append(f'{label}: kịch bản còn chữ số; giọng đọc có thể đọc sai, nên viết số bằng chữ')
+        rec = {**rec, **{col: wording.soften(rec[col]) if col == 'kich_ban' else wording.mask(wording.soften(rec[col])) for col in shown if rec.get(col)}}  # prepare.py masks the script's captions
+        if wording.problems(rec['kich_ban']):
+            warnings.append(f'{label}: kịch bản còn từ "chết"; nên viết "thiệt mạng"')
+        rec['kich_ban'] = unattributed(rec['kich_ban'], rec['nguon'])
+        number, unit = figure_of(rec.get('so_lieu', ''), rec.get('don_vi', ''))
+        if rec.get('so_lieu') and not number:
+            warnings.append(f'{label}: số liệu "{rec["so_lieu"]} {rec.get("don_vi", "")}" là tuổi hoặc thiếu đơn vị, không phải con số của tin; thẻ không có ô số')
+        digits = re.findall(r'[^\s,.;:!?"()]*\d[^\s,;:!?"()]*', rec['kich_ban'])
+        if digits:  # named, so a road or model name ("A1", "5G") is not taken for a forgotten figure
+            warnings.append(f'{label}: kịch bản còn chữ số ({", ".join(digits[:4])}); giọng đọc có thể đọc sai, nên viết bằng chữ (ví dụ "A một")')
         story = {
             'category': rec['chuyen_muc'].upper(),
             'title': [t for t in (rec['tieu_de_1'], rec.get('tieu_de_2', '')) if t],
-            'number': rec['so_lieu'],
-            'unit': rec['don_vi'].upper(),
+            'number': number,
+            'unit': unit.upper(),
             'detail': [t for t in (rec.get('chi_tiet_1', ''), rec.get('chi_tiet_2', '')) if t],
             'note': rec.get('ghi_chu', ''),
             'source': rec['nguon'],
             'url': rec['url'],
             'script': rec['kich_ban'],
+            'sector': normalise(rec['nganh']),  # picks the fallback photo (fetch_images.stock_photo)
         }
         image = rec.get('anh_url', '')
         if normalise(image) in NO_IMAGE or image.strip() == '-':
@@ -179,12 +225,25 @@ def approved_stories(records, day, freshness=None):
             story['image'] = image
         if rec.get('anh_nguon'):
             story['image_credit'] = rec['anh_nguon']
+        if rec.get('tu_khoa_anh', '').strip():  # English words to search a free photo with (fetch_images.found_photo)
+            story['image_query'] = rec['tu_khoa_anh'].strip()
+        video = rec.get('video_url', '').strip()
+        if video.startswith('http'):  # a free-licence clip (fetch_images.fetch_story_clip)
+            story['video'] = video
+            story['video_credit'] = rec.get('video_nguon', '')
         if published:
             story['published'] = published.strftime('%Y-%m-%d %H:%M')
         stories.append({'story': story, 'row': n, 'sector': normalise(rec['nganh']), 'sector_label': rec['nganh'],
                         'hot': normalise(rec.get('hot', '')) in TRUE,
+                        'very_hot': normalise(rec.get('ly_do_nong', '')).startswith('cuc_nong'),  # the routine's mark: a video of its own
                         'order': _number(rec.get('thu_tu')), 'hot_order': _number(rec.get('thu_tu_hot'))})
     return stories, warnings, errors
+
+
+def programme_sectors(prog):
+    """The sectors a video takes its stories from: `nganh` is one name, or a list when it merges several."""
+    names = prog.get('filter', {}).get('nganh', '')
+    return {normalise(name) for name in ([names] if isinstance(names, str) else names)}
 
 
 def plan_programmes(stories, programmes, day, config=None):
@@ -193,11 +252,14 @@ def plan_programmes(stories, programmes, day, config=None):
     plans = []
     for prog in programmes:
         f = prog.get('filter', {})
-        if f.get('hot'):
+        if f.get('urls'):  # a hot-news batch: the stories one scan found
+            wanted = set(f['urls'])
+            picked = sorted((s for s in stories if canonical_url(s['story']['url']) in wanted), key=lambda s: (s['hot_order'], s['order'], s['row']))
+        elif f.get('hot'):
             picked = sorted((s for s in stories if s['hot']), key=lambda s: (s['hot_order'], s['order'], s['row']))
         else:
-            sector = normalise(f.get('nganh', ''))
-            picked = sorted((s for s in stories if s['sector'] == sector), key=lambda s: (s['order'], s['row']))
+            sectors = programme_sectors(prog)
+            picked = sorted((s for s in stories if s['sector'] in sectors), key=lambda s: (s['order'], s['row']))
         picked = picked[:prog.get('max', 6)]
         if len(picked) < prog.get('min', 1):
             plans.append((prog, None, f'{len(picked)} tin đã duyệt, cần ít nhất {prog.get("min", 1)}'))
@@ -216,7 +278,7 @@ def plan_programmes(stories, programmes, day, config=None):
                    'intro_title': prog.get('intro_title') or [prog['title']],
                    'intro_tagline': prog.get('intro_tagline', ''),
                    'intro_accent': prog.get('intro_accent') or prog.get('accent') or '#4ADE80',
-                   'brand': config.get('brand', 'TIN TỨC KINH TẾ VIỆT NAM'),
+                   'brand': prog.get('brand') or config.get('brand', 'TIN TỨC KINH TẾ VIỆT NAM'),
                    'stories': edition_stories}
         if prog.get('voice'):  # otherwise the voice chosen in Studio / --voice
             edition['voice'] = prog['voice']
@@ -228,10 +290,63 @@ def plan_programmes(stories, programmes, day, config=None):
     return plans
 
 
+BATCH_MIN = 2  # hot stories one scan must bring for a video of its own; fewer wait for the next scan
+LAST_BATCH_HOUR = 19  # from this hour whatever waits makes a video: no scan is coming after it
+PARTS = [(11, 'SÁNG'), (14, 'TRƯA'), (18, 'CHIỀU'), (24, 'TỐI')]
+
+
+def batches_file(day):
+    """Which hot stories went into which batch, kept beside the day's folder: the sheet step clears that folder."""
+    return WORK / f'{day.isoformat()}-dot.json'
+
+
+def assign_batches(stories, day, now=None):
+    """Group the day's hot stories by the scan that brought them. A story keeps its batch for the whole day, so a video
+    already made (and maybe posted) is never made again with other stories. New stories make a batch once there are
+    BATCH_MIN of them, or one of them is very hot, or the day's last scans are done; until then they wait."""
+    now = now or datetime.now()
+    path = batches_file(day)
+    state = json.loads(path.read_text(encoding='utf8')) if path.exists() else {'batches': [], 'waiting': []}
+    known = {u for b in state['batches'] for u in b['urls']}
+    new = [s for s in stories if s['hot'] and canonical_url(s['story']['url']) not in known]
+    urls = [canonical_url(s['story']['url']) for s in new]
+    if new and (len(new) >= BATCH_MIN or any(s['very_hot'] for s in new) or now.hour >= LAST_BATCH_HOUR):
+        bid = f'{now:%H%M}'
+        while any(b['id'] == bid for b in state['batches']):
+            bid = f'{int(bid) + 1:04d}'
+        state['batches'].append({'id': bid, 'urls': urls})
+        urls = []
+    state['waiting'] = urls
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, ensure_ascii=False, indent=1), encoding='utf8')
+    return state
+
+
+def batch_programmes(state, stories, config):
+    """One "Tin nóng" video per batch, and one video of its own for each very hot story (left out of its batch's video)."""
+    base = next((p for p in config.get('programmes') or [] if p.get('filter', {}).get('hot')), {})
+    common = {k: v for k, v in base.items() if k in ('accent', 'voice', 'layouts', 'intro_image', 'brand', 'outro', 'intro_accent')}
+    by_url = {canonical_url(s['story']['url']): s for s in stories}
+    progs = []
+    for b in state['batches']:
+        if not b['id'].isdigit():
+            continue  # stories already used another way (the sector videos of the day the switch was made)
+        urls = [u for u in b['urls'] if u in by_url]
+        single = [u for u in urls if by_url[u]['very_hot']]
+        rest = [u for u in urls if u not in single]
+        part = next(name for hour, name in PARTS if int(b['id'][:2]) < hour)
+        if rest:
+            progs.append({**common, 'id': f'tin-nong-{b["id"]}', 'title': f'TIN NÓNG {part}', 'filter': {'urls': rest}, 'min': 1, 'max': 6})
+        for k, u in enumerate(single, 1):
+            progs.append({**common, 'id': f'nong-{b["id"]}-{k}', 'title': 'TIN NÓNG', 'filter': {'urls': [u]}, 'min': 1, 'max': 1})
+    return progs
+
+
 def unassigned_warnings(stories, programmes):
-    sectors = {normalise(p.get('filter', {}).get('nganh', '')) for p in programmes}
-    return [f'Dòng {s["row"]}: ngành "{s["sector_label"]}" không có video riêng'
-            + (' (vẫn vào video nổi bật)' if s['hot'] else '') for s in stories if s['sector'] not in sectors]
+    sectors = set().union(*map(programme_sectors, programmes))
+    # A hot story outside the sectors ("Thời sự") is meant for the round-up alone; only a non-hot one is lost.
+    return [f'Dòng {s["row"]}: ngành "{s["sector_label"]}" không có video riêng nên tin này không vào video nào'
+            for s in stories if s['sector'] not in sectors and not s['hot']]
 
 
 def load_config():
@@ -300,17 +415,32 @@ def main(argv=None):
     except SheetError as e:
         print('LỖI:', e, flush=True)
         return 1
-    warnings += unassigned_warnings(stories, programmes)
+    waiting = []
+    if config.get('hot_batches'):  # videos follow the scans through the day, not the sectors
+        state = assign_batches(stories, day)
+        programmes, waiting = batch_programmes(state, stories, config), state['waiting']
+    else:
+        warnings += unassigned_warnings(stories, programmes)
     plans = plan_programmes(stories, programmes, day, config)
 
     day_dir = WORK / day.isoformat()
-    if day_dir.exists():  # stale editions from an earlier run must not be rendered again
-        shutil.rmtree(day_dir)
+    editions = {prog['id']: edition for prog, edition, _ in plans if edition}
+    kept = set()
+    for item in day_dir.iterdir() if day_dir.exists() else []:  # stale editions from an earlier run must not be rendered again
+        if item.is_dir() and item.name in editions and same_edition(item / 'news.json', editions[item.name]):
+            kept.add(item.name)  # the sheet changed elsewhere: this video need not be made again (run_daily.py)
+        elif item.is_dir():
+            shutil.rmtree(item)
+        else:  # auto-render.json too: while it is gone, the day's render counts as under way (tiktok_post.render_finished)
+            item.unlink()
     summary = []
     for prog, edition, reason in plans:
         entry = {'id': prog['id'], 'title': prog['title'], 'status': 'ready' if edition else 'skipped', 'reason': reason}
         if edition:
-            save_edition(edition, day_dir / prog['id'] / 'news.json')
+            if prog['id'] in kept:
+                entry['unchanged'] = True
+            else:
+                save_edition(edition, day_dir / prog['id'] / 'news.json')
             entry['count'] = len(edition['stories'])
             entry['stories'] = [' '.join(s['title']) for s in edition['stories']]
         summary.append(entry)
@@ -328,7 +458,12 @@ def main(argv=None):
     for p in summary:
         print(f'  {"✓" if p["status"] == "ready" else "–"} {p["title"]}: '
               + (f'{p["count"]} tin' if p['status'] == 'ready' else f'bỏ qua ({p["reason"]})'), flush=True)
+    if waiting:
+        print(f'{len(waiting)} tin nóng mới đang chờ lượt quét sau để đủ một video', flush=True)
     if not ready:
+        if config.get('hot_batches'):  # the first scan of the day has not brought enough yet: nothing is wrong
+            print(f'Chưa có video tin nóng nào cho ngày {day:%d/%m/%Y}', flush=True)
+            return 0
         print(f'LỖI: không có video nào đủ tin cho ngày {day:%d/%m/%Y}', flush=True)
         return 1
     return 0

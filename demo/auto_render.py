@@ -1,28 +1,28 @@
 """Render today's videos automatically once the Google Sheet has approved stories.
 
-Meant to run every few minutes (launchd, see demo/launchd/). Each run:
+Meant to run every few minutes (launchd, see demo/launchd/; Task Scheduler, see demo/windows/). Each run:
   1. exits unless the local time is inside config "auto_render.window" (default 7:00–12:00)
   2. reads the sheet and fingerprints today's approved stories
   3. if the fingerprint differs from the last render, runs run_daily.py for today
      (a failing sheet is retried at most "auto_render.max_attempts" times, default 2)
-  4. posts a macOS notification with the result, or once near the end of the window if there is no news
+  4. posts a macOS or Windows notification with the result, or once near the end of the window if there is no news
   5. after a successful render, deletes videos, work folders and cached media older than "retention_days"
 
   .venv-demo/bin/python demo/auto_render.py            # one check, as launchd does
   .venv-demo/bin/python demo/auto_render.py --force    # ignore time window, fingerprint and attempts
 """
-import argparse, hashlib, json, re, shutil, subprocess, sys, time
+import argparse, hashlib, json, os, re, shutil, subprocess, sys, time
 from datetime import date as Date, datetime, timedelta
 from pathlib import Path
 
 from edition import BUSY, WORK
-from sheet_to_news import SheetError, approved_stories, fetch_rows, load_config, rows_to_dicts
+from sheet_to_news import LAST_BATCH_HOUR, SheetError, approved_stories, batches_file, fetch_rows, load_config, rows_to_dicts
 
 demo = Path(__file__).resolve().parent
 project = demo.parent
 DAILY = project / 'output' / 'daily'
 ASSETS = demo / 'assets'
-CACHED = ['img-*', 'vieneu-*.wav', 'edge-*.mp3']  # content-addressed, re-created on demand
+CACHED = ['img-*', 'vid-*.mp4', 'credit-*.txt', 'vieneu-*.wav', 'edge-*.mp3']  # content-addressed, re-created on demand
 DAY_DIR = re.compile(r'\d{4}-\d{2}-\d{2}')
 
 
@@ -30,9 +30,27 @@ def log(*parts):
     print(datetime.now().strftime('%Y-%m-%d %H:%M:%S'), *parts, flush=True)
 
 
+# Windows toast through PowerShell's own app id; title and message come in through the environment,
+# so no quoting of Vietnamese text is needed.
+TOAST = ("[Windows.UI.Notifications.ToastNotificationManager,Windows.UI.Notifications,ContentType=WindowsRuntime]|Out-Null;"
+         "$t=[Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02);"
+         "$x=$t.GetElementsByTagName('text');$x.Item(0).AppendChild($t.CreateTextNode($env:TOAST_TITLE))|Out-Null;"
+         "$x.Item(1).AppendChild($t.CreateTextNode($env:TOAST_MESSAGE))|Out-Null;"
+         "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("
+         "'{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe')"
+         ".Show([Windows.UI.Notifications.ToastNotification]::new($t))")
+
+
 def notify(title, message):
-    script = f'display notification {json.dumps(message)} with title {json.dumps(title)}'
-    subprocess.run(['osascript', '-e', script], capture_output=True)
+    try:
+        if sys.platform == 'win32':
+            subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', TOAST], capture_output=True,
+                           env={**os.environ, 'TOAST_TITLE': title, 'TOAST_MESSAGE': message}, timeout=30)
+        elif sys.platform == 'darwin':
+            script = f'display notification {json.dumps(message)} with title {json.dumps(title)}'
+            subprocess.run(['osascript', '-e', script], capture_output=True)
+    except (OSError, subprocess.TimeoutExpired):  # a missed notification must not stop the render
+        pass
 
 
 def fingerprint(stories):
@@ -57,6 +75,9 @@ def cleanup(today, keep_days, now=None):
             if d.is_dir() and DAY_DIR.fullmatch(d.name) and Date.fromisoformat(d.name) < oldest:
                 shutil.rmtree(d)
                 removed.append(d.name)
+            elif d.is_file() and d.name.endswith('-dot.json') and DAY_DIR.fullmatch(d.name[:-9]) and Date.fromisoformat(d.name[:-9]) < oldest:
+                d.unlink()  # the day's hot-news batches (sheet_to_news.batches_file)
+                removed.append(d.name)
     limit = (now or time.time()) - keep_days * 86400
     for pattern in CACHED:  # prepare.py and fetch_images.py touch a file whenever they reuse it
         for f in ASSETS.glob(pattern):
@@ -64,6 +85,15 @@ def cleanup(today, keep_days, now=None):
                 f.unlink()
                 removed.append(f.name)
     return removed
+
+
+def late_flush(config, day, now, state):
+    """Hot-news mode: stories still waiting for a batch once the day's last scan is due get their video anyway,
+    once, even when the last scan wrote nothing (sheet_to_news.assign_batches does the grouping)."""
+    if not config.get('hot_batches') or now.hour < LAST_BATCH_HOUR or state.get('flushed'):
+        return False
+    path = batches_file(day)
+    return path.exists() and bool(json.loads(path.read_text(encoding='utf8')).get('waiting'))
 
 
 def ready_videos(day):
@@ -107,7 +137,8 @@ def main(argv=None):
         return 0
     current = fingerprint(stories)
     max_attempts = settings.get('max_attempts', 2)
-    if not args.force and not should_render(state, current, max_attempts):
+    late = late_flush(config, day, now, state)
+    if not args.force and not late and not should_render(state, current, max_attempts):
         return 0
     log(f'{len(stories)} tin đã duyệt, Sheet đã thay đổi -> tạo video')
     for e in errors:
@@ -123,7 +154,7 @@ def main(argv=None):
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.write_text(json.dumps({'fingerprint': current, 'ok': proc.returncode == 0, 'attempts': attempts,
                                       'rendered_at': now.isoformat(), 'stories': len(stories), 'dropped': len(errors),
-                                      'videos': videos}, ensure_ascii=False))
+                                      'videos': videos, 'flushed': late or state.get('flushed', False)}, ensure_ascii=False))
     dropped = f'; loại {len(errors)} tin cũ/trùng' if errors else ''
     if proc.returncode == 0:
         notify('Điểm tin', f'Đã tạo {len(videos)} video ngày {day:%d/%m}{dropped}: ' + ', '.join(videos))

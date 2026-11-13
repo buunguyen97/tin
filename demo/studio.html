@@ -64,6 +64,42 @@ pre{background:var(--code);color:var(--code-ink);font:12px/1.5 ui-monospace,Menl
 .items .n{font-size:12px;color:var(--muted)}
 .items a{color:inherit;text-decoration:none}
 .empty-state{color:var(--muted);font-size:14px;padding:28px;text-align:center;border:1px dashed var(--line);border-radius:12px}
+[hidden]{display:none!important}
+.tabs{display:flex;gap:4px;margin-left:8px}
+.tabs button{border-color:transparent;background:none;color:var(--muted);padding:6px 12px}
+.tabs button.sel{background:var(--chip);color:var(--ink)}
+.account{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.account b{overflow-wrap:anywhere}
+.account .acts{display:flex;gap:6px}
+.account small{display:block;font-size:12px;font-weight:400}
+.account small.good{color:var(--ok)}.account small.bad{color:var(--err)}
+.check{display:flex;gap:8px;align-items:center;margin-top:12px;color:var(--ink)}
+.check input{width:auto;margin:0}
+.section-title{font-size:15px;margin:4px 0 0}
+.badge{font-size:12px;padding:2px 8px;border-radius:99px;background:var(--chip);color:var(--muted);white-space:nowrap}
+.badge.good{color:var(--ok)}.badge.warn{background:var(--warn-bg);color:var(--warn)}
+.caption{padding:10px 14px 0}
+.caption label{margin:0 0 4px}
+.statusbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.statusbar .state{display:flex;align-items:center;gap:10px;min-width:0}
+.statusbar .dot{width:10px;height:10px;border-radius:50%;background:var(--muted);flex:none}
+.statusbar .dot.on{background:var(--ok)}.statusbar .dot.bad{background:var(--err)}
+.statusbar b{display:block;font-size:15px}
+.statusbar small{display:block;font-size:13px;color:var(--muted)}
+button.stop{background:var(--err);border-color:var(--err);color:#fff}
+.steps small{display:block;font-size:12px;color:var(--err);font-weight:400;overflow-wrap:anywhere}
+.steps li{align-items:baseline}
+.vid{margin:0;padding:0 14px}
+.vid summary{padding:2px 0 8px}
+.caption .head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px}
+.caption .head label{margin:0}
+.card-note{font-size:12px;color:var(--err);padding:6px 14px 0;overflow-wrap:anywhere}
+.post-actions .wide{grid-column:1/-1}
+textarea{width:100%;min-height:96px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;font-size:13px;line-height:1.45;resize:vertical}
+.post-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px 14px 14px}
+.post-actions .note{grid-column:1/-1}
+button.armed{background:var(--err);border-color:var(--err);color:#fff}
+#tiktokView .media{max-height:420px}
 </style>
 </head>
 <body>
@@ -71,8 +107,42 @@ pre{background:var(--code);color:var(--code-ink);font:12px/1.5 ui-monospace,Menl
   <h1>Điểm tin Studio</h1>
   <span id="cfg" class="pill">…</span>
   <a id="sheetLink" target="_blank" rel="noopener" hidden>Mở Google Sheet ↗</a>
+  <nav class="tabs" id="tabs"><button data-tab="news" class="sel">Bản tin</button><button data-tab="tiktok">TikTok</button></nav>
 </header>
-<main>
+<main id="tiktokView" hidden>
+  <div class="side">
+    <section class="panel">
+      <h2>Tài khoản TikTok</h2>
+      <div id="ttAccounts"></div>
+      <div class="buttons" id="ttConnectBox"><button id="ttConnect" class="primary">Kết nối tài khoản</button></div>
+      <p class="hint" id="ttConnectHint">Một cửa sổ trình duyệt sẽ mở ra. Đăng nhập TikTok ở đó, quét mã QR là nhanh nhất, rồi cửa sổ tự đóng. Phiên đăng nhập chỉ lưu trên máy này.</p>
+      <div class="notes" id="ttLoginNote"></div>
+    </section>
+    <section class="panel">
+      <h2>Lịch tự động đăng</h2>
+      <div id="ttSchedule"></div>
+      <p class="hint" id="ttAutoHint"></p>
+      <label class="check"><input type="checkbox" id="ttAi"> Gắn nhãn nội dung AI trên TikTok</label>
+    </section>
+    <section class="panel">
+      <h2>Lưu ý</h2>
+      <p class="hint" style="margin:0">Cách đăng này dùng phiên đăng nhập, không qua API chính thức, nên TikTok có thể hạn chế hoặc khoá tài khoản. Hãy đăng giãn ra, tránh đăng dồn nhiều video trong vài phút.</p>
+    </section>
+  </div>
+  <div class="content">
+    <section class="panel statusbar" id="ttBar"></section>
+    <section class="panel">
+      <div class="summary"><h2>Đăng TikTok</h2>
+        <div><label for="ttDay" style="display:inline;margin-right:8px">Ngày</label><select id="ttDay" style="width:auto"></select></div></div>
+      <div class="notes" id="ttPostNote"></div>
+    </section>
+    <h3 class="section-title">Video tin tức</h3>
+    <div class="progs" id="ttNewsVideos"></div>
+    <h3 class="section-title">Video reup gần đây</h3>
+    <div class="progs" id="ttReupVideos"></div>
+  </div>
+</main>
+<main id="newsView">
   <div class="side">
     <section class="panel">
       <h2>Bản tin trong ngày</h2>
@@ -218,6 +288,202 @@ async function run(steps, programmes = []) {
 $('load').onclick = () => run(['sheet', 'images']);
 $('make').onclick = () => run(ALL);
 refresh();
+
+// --- TikTok tab ------------------------------------------------------------------------------------
+let tt = null, ttTimer = null, ttCards = '', ttFlash = '', ttChannel = null, ttChannelFor = null;
+const drafts = {}, checks = {}, opened = {};  // edits, account checks and open videos survive a refresh
+const REFRESH = 60000;  // the bot posts by itself: keep the schedule current while the tab is open
+const clock = t => t ? t.slice(11, 16) : '';
+
+function showTab(tab) {
+  $('tiktokView').hidden = tab !== 'tiktok'; $('newsView').hidden = tab === 'tiktok';
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('sel', b.dataset.tab === tab));
+  try { history.replaceState(null, '', tab === 'tiktok' ? '#tiktok' : '#'); } catch {}
+  if (tab === 'tiktok') ttRefresh(); else refresh();
+}
+$('tabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) showTab(b.dataset.tab); });
+
+async function ttPost(action, body) {
+  const r = await fetch('/api/tiktok/' + action, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) { ttNote(data.error || 'Không thực hiện được.'); return null; }
+  return data;
+}
+function ttNote(message) { $('ttPostNote').innerHTML = `<div class="note err">${esc(message)}</div>`; $('ttPostNote').scrollIntoView({block: 'nearest'}); }
+
+async function ttRefresh() {
+  const day = $('ttDay').value || today();
+  clearTimeout(ttTimer);
+  if ($('tiktokView').hidden) return;
+  try { tt = await (await fetch('/api/tiktok?date=' + day)).json(); }
+  catch { ttTimer = setTimeout(ttRefresh, REFRESH); return; }
+  ttRender(day);
+  ttTimer = setTimeout(ttRefresh, tt.post.running || tt.login.running ? 1500 : REFRESH);
+  if (tt.account && ttChannelFor !== tt.account && !tt.login.running) {
+    ttChannelFor = tt.account;
+    try { ttChannel = (await (await fetch('/api/tiktok/channel')).json()).channel; } catch { ttChannel = null; }
+    ttRender(day);
+  }
+}
+
+function ttBar() {
+  const s = tt.schedule, started = tt.auto_from && tt.today >= tt.auto_from;
+  const name = ttChannel ? '@' + ttChannel : 'tài khoản đã kết nối';
+  let dot = 'on', title, detail;
+  if (!tt.account) { dot = 'bad'; title = 'Chưa kết nối tài khoản TikTok'; detail = 'Bot chưa đăng được video nào.'; }
+  else if (!tt.auto) { dot = ''; title = 'Tự động đăng đang dừng'; detail = 'Chỉ đăng khi bạn bấm nút.'; }
+  else if (!tt.auto_from) { dot = 'bad'; title = 'Chưa đặt ngày bắt đầu'; detail = 'Cần tiktok_auto_from trong config.json.'; }
+  else if (!started) { title = `Sẽ tự đăng từ ngày ${vnDate(tt.auto_from)}`; detail = tt.limit == null ? `Lên ${name}, không giới hạn số bài mỗi ngày.` : `Lên ${name}, tối đa ${tt.limit} bài mỗi ngày.`; }
+  else {
+    title = `Đang tự đăng lên ${name}: ${s.limit == null ? s.count : `${s.count}/${s.limit}`} bài hôm nay`;
+    detail = s.next_at ? `Bài kế tiếp: ${s.next_id}, sớm nhất lúc ${clock(s.next_at)}.`
+      : !s.finished ? 'Đang chờ render xong.' : s.limit != null && s.count >= s.limit ? 'Đã đủ số bài hôm nay.' : 'Hôm nay không còn video chờ đăng.';
+  }
+  const button = !tt.account ? '' : tt.auto ? '<button class="stop" id="ttStop">Dừng tự đăng</button>' : '<button id="ttResume">Bật lại tự đăng</button>';
+  $('ttBar').innerHTML = `<div class="state"><span class="dot ${dot}"></span><div><b>${esc(title)}</b><small>${esc(detail)}</small></div></div>${button}`;
+}
+
+function ttRender(day) {
+  const a = tt.account, busy = tt.login.running, c = checks[a];
+  const line = c === undefined ? '<small class="good">Đã kết nối</small>' : c === 'wait' ? '<small>Đang kiểm tra…</small>' : c.ok ? '<small class="good">Phiên đăng nhập còn hiệu lực</small>' : `<small class="bad">${esc(c.message || 'Phiên đã hết hạn, hãy đăng nhập lại')}</small>`;
+  $('ttAccounts').innerHTML = !tt.installed
+    ? '<div class="note err">Chưa cài autotok. Xem mục Đăng lên TikTok trong demo/README.md.</div>'
+    : a ? `<div class="account"><div><b>${esc(ttChannel ? '@' + ttChannel : 'TikTok')}</b>${line}</div><div class="acts">
+          <button class="small" data-check="${esc(a)}">Kiểm tra</button><button class="small" data-login="${esc(a)}" ${busy ? 'disabled' : ''}>Đăng nhập lại</button><button class="small" data-remove="${esc(a)}">Ngắt</button></div></div>`
+    : '<p class="hint" style="margin:0 0 8px">Chưa kết nối tài khoản.</p>';
+  $('ttConnectBox').hidden = $('ttConnectHint').hidden = !!a || !tt.installed;
+  $('ttConnect').disabled = busy;
+  $('ttLoginNote').innerHTML = busy
+    ? `<div class="note ok">Đang chờ bạn đăng nhập ${esc(tt.login.label)} trong cửa sổ trình duyệt…</div>`
+    : tt.login.message ? `<div class="note ${tt.login.ok ? 'ok' : 'err'}">${esc(tt.login.message)}</div>` : '';
+  $('ttAi').checked = tt.ai_label;
+  ttBar();
+  const started = tt.auto_from && tt.today >= tt.auto_from;
+  $('ttAutoHint').textContent = `Bot Telegram tự đăng công khai video tin tức, không qua duyệt: tong-hop trước, các video khác cách nhau ngẫu nhiên ${tt.gap[0]}–${tt.gap[1]} phút, dừng sau ${tt.stop_hour} giờ. Mỗi ngày tối đa: tuần đầu 3 bài, tuần hai 5 bài, sau đó 7 bài. Máy và bot phải đang chạy. Video reup vẫn đăng bằng nút.`;
+  const s = tt.schedule;
+  const words = {posted: 'đã đăng', check: 'cần kiểm tra', failed: 'bỏ qua do lỗi', waiting: 'sẽ đăng', limited: 'không đăng hôm nay', skipped: 'đã loại'};
+  $('ttSchedule').innerHTML = tt.auto && started && s.rows.length
+    ? `<ul class="steps" style="margin-bottom:8px">${s.rows.map(r => `<li class="${r.state === 'posted' ? 'done' : ['check', 'failed'].includes(r.state) ? 'fail' : r.id === s.next_id ? 'active' : ''}"><span>${esc(r.id)}: ${words[r.state]}${r.at ? ' ' + clock(r.at) : ''}${r.message ? `<small>${esc(r.message.slice(0, 160))}</small>` : ''}</span></li>`).join('')}</ul>` : '';
+  const days = [...new Set([today(), ...tt.days])];
+  const options = days.map(d => `<option value="${d}">${vnDate(d)}</option>`).join('');
+  if ($('ttDay').innerHTML !== options) $('ttDay').innerHTML = options;
+  $('ttDay').value = day;
+  if (ttFlash) $('ttPostNote').innerHTML = `<div class="note ok">${esc(ttFlash)}</div>`;
+  else if (tt.post.running) $('ttPostNote').innerHTML = `<div class="note ok">Đang đăng ${esc(tt.post.label)} lên TikTok, có thể mất vài phút…</div>`;
+  else if (tt.post.message) $('ttPostNote').innerHTML = `<div class="note ${tt.post.ok ? 'ok' : 'err'}">${esc(tt.post.message)}</div>`;
+  else $('ttPostNote').innerHTML = '';
+  const signature = JSON.stringify([tt.videos, tt.reup_videos, s.rows, s.next_id, tt.auto, a, tt.post.running, day]);
+  if (signature === ttCards) return;
+  // Not while the owner is typing or watching: the next refresh tries again.
+  const inUse = document.activeElement?.tagName === 'TEXTAREA' || [...document.querySelectorAll('#tiktokView video')].some(v => !v.paused);
+  if (inUse && ttCards) return;
+  ttCards = signature;
+  const planned = day === tt.today && tt.auto && started;
+  const rowOf = v => planned && v.kind === 'news' ? s.rows.find(r => r.id === v.id) : null;
+  const position = v => { const i = s.rows.findIndex(r => r.id === v.id); return i < 0 ? 99 : i; };
+  const news = planned ? [...tt.videos].sort((x, y) => position(x) - position(y)) : tt.videos;
+  $('ttNewsVideos').innerHTML = news.map(v => ttCard(v, a, rowOf(v), s.next_id)).join('') || `<div class="empty-state">Chưa có video tin tức đã render xong cho ngày ${vnDate(day)}.</div>`;
+  $('ttReupVideos').innerHTML = tt.reup_videos.map(v => ttCard(v, a)).join('') || '<div class="empty-state">Chưa có video reup nào.</div>';
+}
+
+function ttCard(v, account, row, nextId) {
+  const pub = v.status.public, priv = v.status.private, draftKey = `${v.kind}/${v.id}/${v.key}`;
+  const unsure = (pub && pub.uncertain) || (priv && priv.uncertain);
+  const time = s => s && s.at ? new Date(s.at).toLocaleString('vi-VN', {hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit'}) : '';
+  const badge = unsure ? '<span class="badge warn">Chưa rõ kết quả</span>'
+    : pub ? `<span class="badge good">Đã đăng công khai ${esc(time(pub))}</span>`
+    : row?.state === 'failed' ? '<span class="badge warn">Bỏ qua do lỗi</span>'
+    : row?.state === 'skipped' ? '<span class="badge warn">Đã loại khỏi lịch</span>'
+    : row?.state === 'limited' ? '<span class="badge">Không đăng hôm nay</span>'
+    : row?.state === 'waiting' ? `<span class="badge good">${row.id === nextId ? 'Bài kế tiếp' : 'Sẽ tự đăng'}</span>`
+    : priv ? `<span class="badge good">Đã đăng riêng tư ${esc(time(priv))}</span>` : '<span class="badge">Chưa đăng</span>';
+  const skipButton = !row || pub ? '' : row.state === 'skipped' ? '<button class="small wide" data-skip="0">Đưa lại vào lịch</button>'
+    : ['waiting', 'limited'].includes(row.state) ? '<button class="small wide" data-skip="1">Không đăng video này</button>' : '';
+  const off = !account || tt.post.running ? 'disabled' : '';
+  const actions = unsure
+    ? `<div class="note">Lần đăng trước chưa rõ có lên không. Hãy xem trên TikTok trước.</div><button class="small" style="grid-column:1/-1" data-forget>Đã xem, video chưa lên: cho đăng lại</button>`
+    : pub ? '' : `<button data-post="private" ${off || priv ? 'disabled' : ''}>🔒 Đăng riêng tư</button><button class="primary" data-post="public" ${off}>📤 Đăng công khai</button>
+       ${account ? '' : '<div class="note">Hãy kết nối tài khoản TikTok trước.</div>'}`;
+  return `<article class="prog" data-kind="${esc(v.kind)}" data-id="${esc(v.id)}" data-day="${esc(v.day || '')}" data-key="${esc(v.key)}">
+    <div class="top"><div><h3>${esc(v.title)}</h3><div class="meta">${esc(v.id)}</div></div>${badge}</div>
+    <details class="vid" data-open="${esc(draftKey)}" ${opened[draftKey] ? 'open' : ''}><summary>Xem video</summary><div class="media"><video controls playsinline preload="none" src="${esc(v.url)}"></video></div></details>
+    ${row?.message ? `<div class="card-note">${esc(row.message.slice(0, 200))}</div>` : ''}
+    <div class="caption"><div class="head"><label>Caption</label>${pub ? '' : '<button class="small" data-save>Lưu caption</button>'}</div><textarea maxlength="2200" data-draft="${esc(draftKey)}" ${pub ? 'readonly' : ''}>${esc(drafts[draftKey] ?? v.caption)}</textarea></div>
+    <div class="post-actions">${actions}${skipButton}</div></article>`;
+}
+
+async function ttCardClick(e) {
+  const b = e.target.closest('button'), card = e.target.closest('.prog');
+  if (!b || !card) return;
+  const video = {kind: card.dataset.kind, id: card.dataset.id, day: card.dataset.day, key: card.dataset.key};
+  if ('forget' in b.dataset) { if (await ttPost('forget', video)) ttRefresh(); return; }
+  if ('skip' in b.dataset) {
+    if (await ttPost('skip', {...video, skip: b.dataset.skip === '1'})) { ttCards = ''; ttRefresh(); }
+    return;
+  }
+  if ('save' in b.dataset) {
+    const box = card.querySelector('textarea');
+    if (await ttPost('caption', {...video, caption: box.value})) {
+      delete drafts[box.dataset.draft];
+      box.blur(); ttCards = '';
+      ttFlash = `Đã lưu caption của ${video.id}. Bản này sẽ được dùng khi đăng.`;
+      setTimeout(() => { ttFlash = ''; }, 6000);
+      ttRefresh();
+    }
+    return;
+  }
+  if (b.dataset.post === 'public' && !b.classList.contains('armed')) {  // a public post cannot be undone: ask twice
+    b.classList.add('armed'); b.textContent = 'Bấm lần nữa để đăng';
+    setTimeout(() => { if (b.isConnected) { b.classList.remove('armed'); b.textContent = '📤 Đăng công khai'; } }, 5000);
+    return;
+  }
+  if (!b.dataset.post) return;
+  const caption = card.querySelector('textarea').value;
+  if (await ttPost('post', {...video, private: b.dataset.post === 'private', caption})) ttRefresh();
+}
+$('ttNewsVideos').addEventListener('click', ttCardClick);
+$('ttReupVideos').addEventListener('click', ttCardClick);
+$('tiktokView').addEventListener('input', e => { if (e.target.dataset.draft) drafts[e.target.dataset.draft] = e.target.value; });
+$('tiktokView').addEventListener('toggle', e => { if (e.target.dataset?.open) opened[e.target.dataset.open] = e.target.open; }, true);
+$('ttDay').addEventListener('change', ttRefresh);
+$('ttBar').addEventListener('click', async e => {
+  if (e.target.id === 'ttStop') { if (await ttPost('settings', {auto: false, ai_label: tt.ai_label})) ttRefresh(); }
+  if (e.target.id === 'ttResume') {  // this starts public posts without review: ask twice
+    if (!e.target.classList.contains('armed')) {
+      e.target.classList.add('armed'); e.target.textContent = 'Bấm lần nữa để bật';
+      setTimeout(() => { if (e.target.isConnected) { e.target.classList.remove('armed'); e.target.textContent = 'Bật lại tự đăng'; } }, 5000);
+      return;
+    }
+    if (await ttPost('settings', {auto: true, ai_label: tt.ai_label})) ttRefresh();
+  }
+});
+
+$('ttConnect').onclick = async () => { ttChannelFor = null; if (await ttPost('login', {name: 'tiktok'})) ttRefresh(); };
+$('ttAccounts').addEventListener('click', async e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.login) { ttChannelFor = null; if (await ttPost('login', {name: b.dataset.login})) ttRefresh(); }
+  if (b.dataset.check) {
+    checks[b.dataset.check] = 'wait'; ttRender($('ttDay').value);
+    const r = await ttPost('check', {name: b.dataset.check});
+    if (r) checks[b.dataset.check] = r; else delete checks[b.dataset.check];
+    ttRender($('ttDay').value);
+  }
+  if (b.dataset.remove) {
+    if (!b.classList.contains('armed')) {
+      b.classList.add('armed'); b.textContent = 'Bấm lần nữa';
+      setTimeout(() => { if (b.isConnected) { b.classList.remove('armed'); b.textContent = 'Ngắt'; } }, 5000);
+      return;
+    }
+    delete checks[b.dataset.remove];
+    ttChannel = ttChannelFor = null;
+    if (await ttPost('remove', {name: b.dataset.remove})) ttRefresh();
+  }
+});
+$('ttAi').addEventListener('change', async () => {
+  if (await ttPost('settings', {auto: tt.auto, ai_label: $('ttAi').checked})) ttRefresh();
+});
+if (location.hash === '#tiktok') showTab('tiktok');
 </script>
 </body>
 </html>

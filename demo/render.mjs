@@ -9,7 +9,7 @@ const root=process.cwd();
 const jobs=process.argv[2]==='--batch'
  ? JSON.parse(fs.readFileSync(process.argv[3],'utf8'))
  : [{props:process.argv[2] || 'demo/props-vieneu.json', output:process.argv[3] || 'output/diem-tin-2026-10-27-vieneu.mp4'}];
-const MIME={'.mp3':'audio/mpeg','.wav':'audio/wav','.svg':'image/svg+xml','.jpg':'image/jpeg','.png':'image/png','.webp':'image/webp'};
+const MIME={'.mp3':'audio/mpeg','.wav':'audio/wav','.svg':'image/svg+xml','.jpg':'image/jpeg','.png':'image/png','.webp':'image/webp','.mp4':'video/mp4'};
 const server=http.createServer((req,res)=>{
  const relative=decodeURIComponent((req.url||'/').split('?')[0]);
  const file=path.resolve(root,'demo','.'+relative);
