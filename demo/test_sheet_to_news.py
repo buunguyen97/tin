@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest import mock
 import auto_render, run_daily
 from edition import default_programmes, normalise, number_words, spoken_date
-from sheet_to_news import SheetError, approved_stories, canonical_url, parse_date, plan_programmes, rows_to_dicts
+from sheet_to_news import SheetError, approved_stories, canonical_url, parse_date, plan_programmes, rows_to_dicts, unassigned_warnings
 
 TEMPLATE = Path(__file__).resolve().parent / 'sheet-template.csv'
 DAY = date(2026, 10, 27)
@@ -61,6 +61,20 @@ class SheetTests(unittest.TestCase):
         plans, _, _ = plan(rows, programmes)
         self.assertEqual([s['number'] for s in plans['tong-hop'][0]['stories']], ['10', '25.10', '16'])
 
+    def test_one_video_can_merge_sectors(self):
+        rows = template_rows()
+        programmes = [{'id': 'gop', 'title': 'GỘP', 'filter': {'nganh': ['Doanh nghiệp', 'Vĩ mô – Chính sách', 'Hàng không – Du lịch']}, 'min': 2, 'max': 6}]
+        stories, _, _ = approved_stories(rows_to_dicts(rows), DAY)
+        merged = {'doanh_nghiep', 'vi_mo_chinh_sach', 'hang_khong_du_lich'}
+        expected = [s for s in stories if s['sector'] in merged]
+        self.assertGreater(len(expected), 2)
+        plans, _, _ = plan(rows, programmes)
+        edition = plans['gop'][0]
+        self.assertEqual(len(edition['stories']), len(expected))
+        # Each story keeps its own sector, which picks its fallback photo.
+        self.assertEqual({s['sector'] for s in edition['stories']}, merged)
+        self.assertFalse([w for w in unassigned_warnings(expected, programmes)])
+
     def test_only_approved_rows_for_the_day(self):
         rows = template_rows()
         rows[2][COL['trang_thai']] = 'Nháp'
@@ -75,6 +89,24 @@ class SheetTests(unittest.TestCase):
         plans, _, errors = plan(rows)
         self.assertEqual(errors, ['Dòng 2: thiếu kich_ban; bỏ qua tin này'])
         self.assertEqual(len(plans['tong-hop'][0]['stories']), 4)
+
+    def test_video_columns_reach_the_story(self):
+        rows = template_rows()
+        rows[0] += ['Video URL', 'Video nguồn']
+        rows[1] += ['https://upload.wikimedia.org/clip.webm', 'Wikimedia Commons (CC0)']
+        stories, _, _ = approved_stories(rows_to_dicts(rows), DAY)
+        story = next(s['story'] for s in stories if s['row'] == 2)
+        self.assertEqual((story['video'], story['video_credit']), ('https://upload.wikimedia.org/clip.webm', 'Wikimedia Commons (CC0)'))
+        self.assertTrue(all('video' not in s['story'] for s in stories if s['row'] != 2))
+
+    def test_photo_keyword_reaches_the_story(self):
+        rows = template_rows()
+        rows[0] += ['Video URL', 'Video nguồn', 'Từ khóa ảnh']
+        rows[1] += ['', '', ' Knesset building ']
+        stories, _, _ = approved_stories(rows_to_dicts(rows), DAY)
+        story = next(s['story'] for s in stories if s['row'] == 2)
+        self.assertEqual(story['image_query'], 'Knesset building')
+        self.assertTrue(all('image_query' not in s['story'] for s in stories if s['row'] != 2))
 
     def test_overlong_title_and_digits_in_script_warn(self):
         rows = template_rows()

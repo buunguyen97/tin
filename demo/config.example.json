@@ -4,14 +4,15 @@
   "sheet_gid": 0,
   "service_account_file": "",
   "voice": "Ngọc Huyền",
-  "speed": 1.25,
+  "speed": 1.15,
   "brand": "TIN TỨC KINH TẾ VIỆT NAM",
   "outro": "",
   "intro_image": "",
+  "image_rights": "kiem-tra",
   "auto_render": {
     "window": [
       7,
-      12
+      21
     ],
     "max_attempts": 2
   },
@@ -21,6 +22,7 @@
     "enforce_from": "2026-10-29"
   },
   "retention_days": 14,
+  "short_format": true,
   "programmes": [
     {
       "id": "tong-hop",
@@ -30,6 +32,7 @@
       },
       "min": 3,
       "max": 6,
+      "brand": "TIN TỨC VIỆT NAM",
       "intro": "Sự kiện nổi bật",
       "intro_hook": "Những sự kiện đáng chú ý có thể bạn đã bỏ lỡ.",
       "intro_title": [
@@ -46,7 +49,7 @@
         "nganh": "Vĩ mô – Chính sách"
       },
       "min": 2,
-      "max": 5,
+      "max": 6,
       "accent": "#8EBAFF",
       "intro": "Điểm tin vĩ mô, chính sách",
       "intro_hook": "Cùng điểm qua những tin đáng chú ý nhất.",
@@ -64,7 +67,7 @@
         "nganh": "Tài chính – Ngân hàng"
       },
       "min": 2,
-      "max": 5,
+      "max": 6,
       "accent": "#72F1C8",
       "intro": "Điểm tin tài chính, ngân hàng",
       "intro_hook": "Cùng điểm qua những tin đáng chú ý nhất.",
@@ -82,7 +85,7 @@
         "nganh": "Chứng khoán"
       },
       "min": 2,
-      "max": 5,
+      "max": 6,
       "accent": "#FFD687",
       "intro": "Điểm tin chứng khoán",
       "intro_hook": "Cùng điểm qua những tin đáng chú ý nhất.",
@@ -100,7 +103,7 @@
         "nganh": "Doanh nghiệp"
       },
       "min": 2,
-      "max": 5,
+      "max": 6,
       "accent": "#FFA9B6",
       "intro": "Điểm tin doanh nghiệp",
       "intro_hook": "Cùng điểm qua những tin đáng chú ý nhất.",
@@ -118,7 +121,7 @@
         "nganh": "Bất động sản"
       },
       "min": 2,
-      "max": 5,
+      "max": 6,
       "accent": "#C4AEFF",
       "intro": "Điểm tin bất động sản",
       "intro_hook": "Cùng điểm qua những tin đáng chú ý nhất.",
@@ -136,7 +139,7 @@
         "nganh": "Năng lượng"
       },
       "min": 2,
-      "max": 5,
+      "max": 6,
       "accent": "#FFB86B",
       "intro": "Điểm tin năng lượng",
       "intro_hook": "Cùng điểm qua những tin đáng chú ý nhất.",
@@ -154,7 +157,7 @@
         "nganh": "Công nghệ"
       },
       "min": 2,
-      "max": 5,
+      "max": 6,
       "accent": "#7FE3FF",
       "intro": "Điểm tin công nghệ",
       "intro_hook": "Cùng điểm qua những tin đáng chú ý nhất.",
@@ -172,7 +175,7 @@
         "nganh": "Hàng không – Du lịch"
       },
       "min": 2,
-      "max": 5,
+      "max": 6,
       "accent": "#F7A8FF",
       "intro": "Điểm tin hàng không, du lịch",
       "intro_hook": "Cùng điểm qua những tin đáng chú ý nhất.",
@@ -184,14 +187,34 @@
       "intro_accent": "#F7A8FF"
     },
     {
+      "id": "quoc-te",
+      "title": "ĐIỂM TIN QUỐC TẾ",
+      "filter": {
+        "nganh": "Quốc tế"
+      },
+      "min": 2,
+      "max": 6,
+      "accent": "#7FD1FF",
+      "brand": "TIN TỨC QUỐC TẾ",
+      "intro": "Điểm tin quốc tế",
+      "intro_hook": "Cùng điểm qua những sự kiện thế giới đáng chú ý nhất.",
+      "intro_title": [
+        "ĐIỂM TIN",
+        "QUỐC TẾ"
+      ],
+      "intro_tagline": "THẾ GIỚI HÔM NAY CÓ GÌ",
+      "intro_accent": "#7FD1FF"
+    },
+    {
       "id": "phap-luat",
       "title": "ĐIỂM TIN PHÁP LUẬT",
       "filter": {
         "nganh": "Pháp luật"
       },
       "min": 2,
-      "max": 5,
+      "max": 6,
       "accent": "#FF8A80",
+      "brand": "TIN TỨC PHÁP LUẬT VIỆT NAM",
       "intro": "Điểm tin pháp luật",
       "intro_hook": "Cùng điểm qua những vụ việc đáng chú ý nhất.",
       "intro_title": [
@@ -201,5 +224,6 @@
       "intro_tagline": "NHỮNG VỤ VIỆC ĐÁNG CHÚ Ý",
       "intro_accent": "#FF8A80"
     }
-  ]
+  ],
+  "hot_batches": true
 }

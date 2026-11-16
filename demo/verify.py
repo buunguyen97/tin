@@ -13,7 +13,7 @@ props=json.loads(props_path.read_text()); t=0; images=[]
 for i,m in enumerate(props['manuscripts']):
  duration=sum(s['end']-s['start'] for s in m['segments'])
  target=output/f'{prefix}-frame-{i+1}.jpg'
- subprocess.run([ffmpeg,'-y','-loglevel','error','-ss',str(t+duration/2),'-i',str(video),'-frames:v','1',str(target)],check=True)
+ subprocess.run([ffmpeg,'-y','-loglevel','error','-ss',str(t+duration/2),'-i',str(video),'-frames:v','1','-q:v','2',str(target)],check=True)
  im=Image.open(target).convert('RGB'); im.thumbnail((270,480)); images.append(im);t+=duration
 sheet=Image.new('RGB',(270*len(images),480),'#0B1422')
 for i,im in enumerate(images):sheet.paste(im,(270*i,0))

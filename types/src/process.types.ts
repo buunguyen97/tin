@@ -30,6 +30,8 @@ const imageSchema = z.object({
   imageAsset: imageAssetSchema,
   url: z.string().url(),
   hotspot: hotspotSchema.optional(),
+  // tag shown above the card while this photo is on screen (a story can show several photos)
+  label: z.string().url().optional(),
 });
 
 const videoSchema = z.object({
@@ -41,6 +43,7 @@ const videoSchema = z.object({
   endAt: z.number().optional(),
   byline: z.string().optional(),
   url: z.string().url(),
+  label: z.string().url().optional(),
 });
 
 export const processedManuscriptSchema = z.object({
@@ -83,7 +86,15 @@ export const processedManuscriptSchema = z.object({
         .array(z.union([imageSchema, videoSchema, mapSchema]))
         .optional(),
       // Static graphic (e.g. a transparent SVG card) drawn above the animated asset.
-      overlay: z.object({ url: z.string().url() }).optional(),
+      overlay: z
+        .object({
+          url: z.string().url(),
+          base: z.string().url().optional(), // still layer under `url`
+          reveal: z.boolean().optional(), // `url` fades in from the top
+          // layers above `url` that come in later, each at its second of the segment
+          steps: z.array(z.object({ url: z.string().url(), at: z.number() })).optional(),
+        })
+        .optional(),
       start: z.number(),
       end: z.number(),
     })

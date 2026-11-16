@@ -9,7 +9,7 @@ const root=process.cwd();
 const jobs=process.argv[2]==='--batch'
  ? JSON.parse(fs.readFileSync(process.argv[3],'utf8'))
  : [{props:process.argv[2] || 'demo/props-vieneu.json', output:process.argv[3] || 'output/diem-tin-2026-10-27-vieneu.mp4'}];
-const MIME={'.mp3':'audio/mpeg','.wav':'audio/wav','.svg':'image/svg+xml','.jpg':'image/jpeg','.png':'image/png','.webp':'image/webp'};
+const MIME={'.mp3':'audio/mpeg','.wav':'audio/wav','.svg':'image/svg+xml','.jpg':'image/jpeg','.png':'image/png','.webp':'image/webp','.mp4':'video/mp4'};
 const server=http.createServer((req,res)=>{
  const relative=decodeURIComponent((req.url||'/').split('?')[0]);
  const file=path.resolve(root,'demo','.'+relative);
@@ -35,7 +35,7 @@ try{
    console.log('Composition',composition.width,composition.height,composition.durationInFrames / composition.fps,'seconds');
    await renderStill({serveUrl,composition,inputProps:props,frame:50,output:outputFile.replace(/\.mp4$/, '-preview.png'),imageFormat:'png',timeoutInMilliseconds:120000});
    let last=-1;
-   await renderMedia({serveUrl,composition,inputProps:props,codec:'h264',audioCodec:'aac',outputLocation:outputFile,imageFormat:'jpeg',crf:20,concurrency:4,timeoutInMilliseconds:120000,onProgress:({progress})=>{const pct=Math.floor(progress*10)*10;if(pct>last){console.log('Render',pct+'%');last=pct;}}});
+   await renderMedia({serveUrl,composition,inputProps:props,codec:'h264',audioCodec:'aac',outputLocation:outputFile,imageFormat:'jpeg',jpegQuality:100,crf:16,concurrency:4,timeoutInMilliseconds:120000,onProgress:({progress})=>{const pct=Math.floor(progress*10)*10;if(pct>last){console.log('Render',pct+'%');last=pct;}}});
    console.log('DONE',outputFile);
   }catch(err){
    // One broken video must not stop the rest of the day's batch.
