@@ -105,7 +105,7 @@ def video_background(layout,clip,duration,out,grow=0):
  else:
   graph=f"[1:v]{fill.format(w,h)},fps=25[v];[0:v][v]overlay={x}:{y}:shortest=1[o]"
  ff('-f','lavfi','-i',f'color=c={INK.replace("#","0x")}:s={W}x{H}:r=25:d={duration}','-stream_loop','-1','-i',clip,
-    '-filter_complex',graph,'-map','[o]','-t',duration,'-an','-c:v','libx264','-preset','veryfast','-crf','20','-pix_fmt','yuv420p','-movflags','+faststart',out)
+    '-filter_complex',graph,'-map','[o]','-t',duration,'-an','-c:v','libx264','-preset','veryfast','-crf','16','-pix_fmt','yuv420p','-movflags','+faststart',out)
  return out
 def ascent(size,weight):
  """Baseline offset below the top of a line, so blocks can be placed by their top edge."""
@@ -247,6 +247,14 @@ def photo_tag(layout,label,grow=0):
  room=photo_area(layout,grow)[2]-60
  while text_width(label,18,400)+20>room and len(label)>12: label=label[:-2].rstrip(' ,·')+'…'
  return ''.join([f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">',font_style(),*stock_tag(layout,label,grow),'</svg>'])
+def sharp_enough(still,layout,most=1.25):
+ """Whether a clip (by a still of it) fills `layout`'s photo area without being blown up past `most`: a 720p clip
+ suits a window, not a full-width card."""
+ try:
+  with Image.open(still) as im: cw,ch=im.size
+ except OSError: return False
+ _,_,w,h=photo_area(layout,GROW_MOST)
+ return max(w/cw,h/ch)<=most
 SLIDE_SECONDS=2.6  # shortest time one of a story's photos stays on screen
 def story_photos(entry,duration):
  """The photos (and free clips) a story shows in turn: as many of fetch_images.py's as fit its reading time."""
@@ -463,6 +471,7 @@ async def prepare(workdir,legacy,voice,model,force,short=False):
   if layout in PHOTO_ONLY and not entry: layout='goc'  # a photo layout without a photo would leave the frame empty
   clip=entry.get('video') if entry else None  # a curated free-licence clip plays in the photo area all along
   shots=[] if clip else story_photos(entry,duration)  # else the story's photos (and found clips), one after another
+  shots=[t for t in shots if not t.get('video') or sharp_enough(assets/t['file'],layout)] or shots[:0]
   several=len(shots)>1 or any(p.get('video') for p in shots)
   stock=bool(entry) and is_stock(entry.get('video_credit') if clip else entry.get('credit') or item.get('image_credit'))
   owner=entry.get('credit') if entry and not clip else None

@@ -62,7 +62,7 @@ def burn_captions(video, work_dir):
     done = video.with_name(video.stem + '.sub' + video.suffix)
     fonts = Path(os.path.relpath(demo / 'fonts', work_dir)).as_posix()  # relative: a drive letter's colon breaks the filter
     try:
-        ff('-i', video.resolve(), '-vf', f'ass=captions.ass:fontsdir={fonts}', '-c:v', 'libx264', '-crf', '18', '-pix_fmt', 'yuv420p',
+        ff('-i', video.resolve(), '-vf', f'ass=captions.ass:fontsdir={fonts}', '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p',
            '-c:a', 'copy', '-movflags', '+faststart', done.resolve(), cwd=work_dir)
         done.replace(video)
     except subprocess.CalledProcessError as e:

@@ -35,7 +35,7 @@ try{
    console.log('Composition',composition.width,composition.height,composition.durationInFrames / composition.fps,'seconds');
    await renderStill({serveUrl,composition,inputProps:props,frame:50,output:outputFile.replace(/\.mp4$/, '-preview.png'),imageFormat:'png',timeoutInMilliseconds:120000});
    let last=-1;
-   await renderMedia({serveUrl,composition,inputProps:props,codec:'h264',audioCodec:'aac',outputLocation:outputFile,imageFormat:'jpeg',crf:20,concurrency:4,timeoutInMilliseconds:120000,onProgress:({progress})=>{const pct=Math.floor(progress*10)*10;if(pct>last){console.log('Render',pct+'%');last=pct;}}});
+   await renderMedia({serveUrl,composition,inputProps:props,codec:'h264',audioCodec:'aac',outputLocation:outputFile,imageFormat:'jpeg',jpegQuality:100,crf:16,concurrency:4,timeoutInMilliseconds:120000,onProgress:({progress})=>{const pct=Math.floor(progress*10)*10;if(pct>last){console.log('Render',pct+'%');last=pct;}}});
    console.log('DONE',outputFile);
   }catch(err){
    // One broken video must not stop the rest of the day's batch.

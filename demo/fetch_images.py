@@ -193,15 +193,16 @@ CLIP_SECONDS = 60  # longest clip kept; a shorter one loops under the voice
 
 def fetch_story_clip(story):
     """(clip, still) cached file names for the story's video: an H.264 copy without sound, at most
-    CLIP_SECONDS long and 1280 px wide, and a frame from it that stands in as the story's photo."""
+    CLIP_SECONDS long and 1920 px wide (a full-width card shows it 1080 px wide and taller: less would be
+    blown up and soft), and a frame from it that stands in as the story's photo."""
     key = hashlib.sha1(story['video'].encode()).hexdigest()[:16]
     clip, still = assets / f'vid-{key}.mp4', assets / f'img-vid-{key}.jpg'
     if not (clip.exists() and still.exists()):
         # ffmpeg reads only the first CLIP_SECONDS of the link: library originals can be gigabytes.
         part = assets / f'vid-{key}.part.mp4'
         try:
-            ff('-user_agent', UA, '-t', CLIP_SECONDS, '-i', story['video'], '-an', '-vf', "scale='min(1280,iw)':-2,fps=25",
-               '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', part)
+            ff('-user_agent', UA, '-t', CLIP_SECONDS, '-i', story['video'], '-an', '-vf', "scale='min(1920,iw)':-2,fps=25",
+               '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', part)
             part.replace(clip)
         finally:
             part.unlink(missing_ok=True)
@@ -241,7 +242,7 @@ def commons_search(query, kind='bitmap'):
         taken = re.search(r'(?:18|19|20)\d\d', meta.get('DateTimeOriginal', {}).get('value', ''))
         width, height = info.get('width', 0), max(info.get('height', 1), 1)
         if (OLD_OR_DRAWN.search(title) or not FREE_LICENCE.match(licence) or (taken and int(taken.group()) < 1990)
-                or width < (1200 if kind == 'bitmap' else 640) or not 1 <= width / height <= 2.2):  # no portraits, no panoramas
+                or width < (1200 if kind == 'bitmap' else 1280) or not 1 <= width / height <= 2.2):  # no portraits, no panoramas
             continue
         if kind == 'video' and not 5 <= float(info.get('duration') or 0) <= 1800:
             continue
