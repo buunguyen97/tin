@@ -30,6 +30,8 @@ const imageSchema = z.object({
   imageAsset: imageAssetSchema,
   url: z.string().url(),
   hotspot: hotspotSchema.optional(),
+  // tag shown above the card while this photo is on screen (a story can show several photos)
+  label: z.string().url().optional(),
 });
 
 const videoSchema = z.object({
@@ -41,6 +43,7 @@ const videoSchema = z.object({
   endAt: z.number().optional(),
   byline: z.string().optional(),
   url: z.string().url(),
+  label: z.string().url().optional(),
 });
 
 export const processedManuscriptSchema = z.object({

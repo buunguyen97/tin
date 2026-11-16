@@ -15,12 +15,18 @@ public-domain photo of its topic (STOCK_TOPICS: gold, police, court, bank) or el
 demo/stock/<folder>/ (credits in demo/stock/credits.json), a different one for each such story
 of a video. prepare.py tags those "Ảnh minh họa".
 
-Before the library, unless config.json says "ai_image": "tat", Claude looks for a photo (found_photo):
-it proposes searches ("Từ khóa ảnh" in the sheet is tried first), this file fetches CC0 and public-
-domain photos from Wikimedia Commons, and Claude looks at them and picks one that fits, cached as
-demo/assets/img-found-<hash>.jpg and tagged "Ảnh minh họa". If none fits, Claude draws an
-illustration (ai_image.py), cached as demo/assets/img-ai-<hash>.png and tagged "Đồ họa AI". The
-library photos are what is left when that fails.
+A story shows up to MAX_PHOTOS photos in turn (prepare.py, the player's Slideshow): the share image,
+then the article's other photos whose own caption allows them (image_rights.article_photos), cached
+as demo/assets/img-art-<hash>.<ext>.
+
+When the article gives fewer than two, unless config.json says "ai_image": "tat", Claude looks for
+photos (found_photos): it proposes searches ("Từ khóa ảnh" in the sheet is tried first), this file
+fetches free photos from Wikimedia Commons (CC0, public domain, and CC BY / CC BY-SA, whose author
+and licence the card names), and Claude looks at them and picks up to MAX_PHOTOS that fit, cached as
+demo/assets/img-found-<hash>-<n>.jpg and tagged "Ảnh minh họa". It also looks at the first frames of
+free Commons clips and may pick one (found_clip), shown among the photos and tagged "Video minh họa".
+If nothing fits, Claude draws an illustration (ai_image.py), cached as demo/assets/img-ai-<hash>.png
+and tagged "Đồ họa AI". The library photos are what is left when that fails.
 
 A story whose sheet row has a "Video URL" with a free licence ("Video nguồn": Wikimedia Commons
 CC0/public domain, NASA; image_rights.video_allowed) also gets the clip, cached as
@@ -29,13 +35,13 @@ demo/assets/vid-<hash>.mp4; prepare.py plays it in the card's photo area.
 import argparse, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time
 from html import unescape
 from pathlib import Path
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urljoin, urlsplit
 
 from PIL import Image
 
 import ai_image
 from edition import load_edition
-from image_rights import judge, photo_credit, video_allowed
+from image_rights import article_photos, handed_out, is_drawn, judge, photo_credit, video_allowed
 from reup import ff
 
 root = Path(__file__).resolve().parent
@@ -135,6 +141,53 @@ def fetch_story_image(story):
             time.sleep(2 * attempt)
 
 
+def fetch_url_photo(url):
+    """Cached file name of the photo at `url`, or None when it is not a news photo (too small, an odd shape)."""
+    key = hashlib.sha1(url.encode()).hexdigest()[:16]
+    cached = sorted(assets.glob(f'img-art-{key}.*'))
+    if cached:
+        cached[0].touch()  # auto_render.py keeps recently used cache files
+        return cached[0].name
+    try:
+        data, ctype = get(url, 'image/*')
+    except ValueError:
+        return None
+    if ctype not in EXT or len(data) < 20000:
+        return None
+    path = assets / f'img-art-{key}{EXT[ctype]}'
+    path.write_bytes(data)
+    try:
+        with Image.open(path) as im:
+            fits = im.width >= 700 and 0.8 <= im.width / im.height <= 2.4
+    except OSError:
+        fits = False
+    if not fits:
+        path.unlink(missing_ok=True)
+        return None
+    return path.name
+
+
+def stem_of(url):
+    return re.sub(r'\.[a-z]+$', '', urlsplit(url or '').path.rsplit('/', 1)[-1])[:25]
+
+
+def more_article_photos(story, check_rights, most):
+    """[(file, credit)] of the article's other photos whose own caption allows them (all of them without
+    the rights check), not counting the share image, at most `most`."""
+    page = article(story['url'])
+    shared = stem_of(story.get('image') or og_image(story['url'], page))
+    found = []
+    for url, credit in article_photos(page):
+        if len(found) >= most:
+            break
+        if (shared and stem_of(url) == shared) or (check_rights and not handed_out(credit)):
+            continue
+        name = fetch_url_photo(url)
+        if name:
+            found.append((name, credit))
+    return found
+
+
 CLIP_SECONDS = 60  # longest clip kept; a shorter one loops under the voice
 
 
@@ -159,18 +212,21 @@ def fetch_story_clip(story):
 
 COMMONS_API = 'https://commons.wikimedia.org/w/api.php'
 COMMONS_UA = 'diem-tin/1.0 (news video tool)'  # Wikimedia asks scripts for their own name, not a browser's
-FREE_LICENCE = re.compile(r'^(cc0|public domain|pd-|pd$)', re.I)
+# CC0 and public domain need nothing; CC BY and CC BY-SA need the author and licence named, which the
+# card does (image_rights.photo_label). NonCommercial and NoDerivatives licences are not free enough.
+FREE_LICENCE = re.compile(r'^(cc0|public domain|pd-|pd$|cc[ -]by(-sa)?(\s+\d(\.\d)?)?(\s+\w+)?$)', re.I)
+ARTIST_TAG = re.compile(r'<[^>]+>')
 # Public domain is mostly old scans: a stereo card of 1900 Kiev says nothing about today's Kyiv.
 OLD_OR_DRAWN = re.compile(r'\b1[5-9][0-5]\d\b|stereo|postcard|engraving|lithograph|painting|drawing|map\b|logo|coat of arms'
                           r'|\bloc\b|library of congress|brady-handy', re.I)
 
 
-def commons_candidates(query):
-    """Photos Commons has for `query`, as dicts (title, licence, url), best match first: CC0 or public
-    domain, landscape, large enough, and not looking like an old scan or a drawing."""
+def commons_search(query, kind='bitmap'):
+    """Commons files of `kind` ('bitmap' or 'video') for `query`, as dicts (title, licence, artist, url,
+    thumb, duration), best match first, under a free licence (FREE_LICENCE), modern and landscape."""
     url = (f'{COMMONS_API}?action=query&format=json&generator=search&gsrnamespace=6&gsrlimit=30'
-           f'&gsrsearch={quote(query + " filetype:bitmap haswbstatement:P275=Q6938433|P6216=Q19652")}&prop=imageinfo&iiprop=url|size|extmetadata'
-           f'&iiurlwidth=1920&iiextmetadatafilter=LicenseShortName|DateTimeOriginal')
+           f'&gsrsearch={quote(f"{query} filetype:{kind}")}&prop=imageinfo&iiprop=url|size|extmetadata'
+           f'&iiurlwidth={1920 if kind == "bitmap" else 640}&iiextmetadatafilter=LicenseShortName|DateTimeOriginal|Artist')
     p = subprocess.run(['curl', '-sSL', '--max-time', '30', '-A', COMMONS_UA, url], capture_output=True)
     try:
         pages = json.loads(p.stdout).get('query', {}).get('pages', {}) if not p.returncode else {}
@@ -181,14 +237,31 @@ def commons_candidates(query):
         title = page.get('title', '')
         info = (page.get('imageinfo') or [{}])[0]
         meta = info.get('extmetadata', {})
-        licence = meta.get('LicenseShortName', {}).get('value', '')
+        licence = meta.get('LicenseShortName', {}).get('value', '').strip()
         taken = re.search(r'(?:18|19|20)\d\d', meta.get('DateTimeOriginal', {}).get('value', ''))
         width, height = info.get('width', 0), max(info.get('height', 1), 1)
         if (OLD_OR_DRAWN.search(title) or not FREE_LICENCE.match(licence) or (taken and int(taken.group()) < 1990)
-                or width < 1200 or not 1 <= width / height <= 2.2):  # no portraits, no panoramas
+                or width < (1200 if kind == 'bitmap' else 640) or not 1 <= width / height <= 2.2):  # no portraits, no panoramas
             continue
-        found.append({'title': title.removeprefix('File:'), 'licence': licence, 'url': info.get('thumburl') or info['url']})
+        if kind == 'video' and not 5 <= float(info.get('duration') or 0) <= 1800:
+            continue
+        artist = re.sub(r'\s+', ' ', unescape(ARTIST_TAG.sub(' ', meta.get('Artist', {}).get('value', '')))).strip()[:40]
+        found.append({'title': title.removeprefix('File:'), 'licence': licence, 'artist': artist or 'Wikimedia Commons',
+                      'url': info['url'] if kind == 'video' else info.get('thumburl') or info['url'],
+                      'thumb': info.get('thumburl', ''), 'duration': info.get('duration')})
     return found
+
+
+def commons_candidates(query):
+    """Photos Commons has for `query` (commons_search)."""
+    return commons_search(query, 'bitmap')
+
+
+def commons_credit(found):
+    """The credit kept for a Commons file: its licence, and its author when the licence asks to name one."""
+    if re.match(r'cc[ -]by', found['licence'], re.I):
+        return f'Wikimedia Commons ({found["licence"]}, {found.get("artist") or "Wikimedia Commons"})'
+    return f'Wikimedia Commons ({found["licence"]})'
 
 
 def download_photo(url, out):
@@ -207,28 +280,37 @@ def download_photo(url, out):
 
 
 CANDIDATES_PER_SEARCH, MAX_CANDIDATES = 4, 12
+MAX_PHOTOS = 3  # photos a story shows in turn while it is read
 
 
-def found_photo(story):
-    """(cached file name, credit) of a free photo Claude chose for `story` after looking at it, or
-    None when Claude saw none that fits; that verdict is cached too, so a re-render doesn't search again."""
+def search_list(story, terms):
+    """The Commons searches: `terms`, or what a callable `terms` gives (asked only on a cache miss), or Claude's."""
+    if callable(terms):
+        return terms()
+    return terms if terms is not None else ai_image.search_terms(story, story.get('image_query', ''))
+
+
+def found_photos(story, terms=None, most=MAX_PHOTOS):
+    """[(cached file name, credit)] of up to `most` free photos Claude chose for `story` after looking
+    at them, best first; [] when Claude saw none that fits. That verdict is cached too, so a re-render
+    doesn't search again. `terms`: the Commons searches (ai_image.search_terms when not given)."""
     key = image_key(story)
-    name, note = f'img-found-{key}.jpg', assets / f'credit-found-{key}.txt'
+    note = assets / f'found-{key}.json'
     if note.exists():
         note.touch()
-        if not note.read_text(encoding='utf-8'):
-            return None
-        (assets / name).touch()
-        return name, note.read_text(encoding='utf-8')
+        kept = [(name, credit) for name, credit in json.loads(note.read_text(encoding='utf-8')) if (assets / name).exists()]
+        for name, _ in kept:
+            (assets / name).touch()
+        return kept[:most]
     candidates = {}
-    for term in ai_image.search_terms(story, story.get('image_query', '')):
+    for term in search_list(story, terms):
         for photo in commons_candidates(term)[:CANDIDATES_PER_SEARCH]:
             candidates.setdefault(photo['url'], photo)
         if len(candidates) >= MAX_CANDIDATES:
             break
         time.sleep(1)  # Commons refuses scripts that call it too fast
     if not candidates:
-        return None  # possibly a Commons hiccup: not a verdict, so not cached
+        return []  # possibly a Commons hiccup: not a verdict, so not cached
     with tempfile.TemporaryDirectory() as folder:
         photos, sources = {}, {}
         for photo in list(candidates.values())[:MAX_CANDIDATES]:
@@ -236,15 +318,45 @@ def found_photo(story):
             if download_photo(photo['url'], Path(folder) / file):
                 photos[file], sources[file] = photo['title'], photo
         if not photos:
+            return []
+        kept = []
+        for k, picked in enumerate(ai_image.pick_photos(story, folder, photos, most), 1):
+            name = f'img-found-{key}-{k}.jpg'
+            shutil.copyfile(Path(folder) / picked, assets / name)
+            kept.append((name, commons_credit(sources[picked])))
+    note.write_text(json.dumps(kept, ensure_ascii=False), encoding='utf-8')
+    return kept
+
+
+def found_clip(story, terms=None):
+    """(clip url, credit) of a free Commons clip Claude chose for `story` after looking at its first frame,
+    or None; the verdict is cached like found_photos'."""
+    note = assets / f'found-clip-{image_key(story)}.json'
+    if note.exists():
+        note.touch()
+        return tuple(json.loads(note.read_text(encoding='utf-8')) or ()) or None
+    candidates = {}
+    for term in search_list(story, terms):
+        for clip in commons_search(term, 'video')[:CANDIDATES_PER_SEARCH]:
+            if clip['thumb']:
+                candidates.setdefault(clip['url'], clip)
+        if len(candidates) >= MAX_CANDIDATES:
+            break
+        time.sleep(1)
+    if not candidates:
+        return None
+    with tempfile.TemporaryDirectory() as folder:
+        stills, sources = {}, {}
+        for clip in list(candidates.values())[:MAX_CANDIDATES]:
+            file = f'{len(stills) + 1:02d}.jpg'
+            if download_photo(clip['thumb'], Path(folder) / file):
+                stills[file], sources[file] = clip['title'], clip
+        if not stills:
             return None
-        picked = ai_image.pick_photo(story, folder, photos)
-        if not picked:
-            note.write_text('', encoding='utf-8')
-            return None
-        shutil.copyfile(Path(folder) / picked, assets / name)
-    credit = f'Wikimedia Commons ({sources[picked]["licence"]})'
-    note.write_text(credit, encoding='utf-8')
-    return name, credit
+        picked = ai_image.pick_clip(story, folder, stills)
+    chosen = (sources[picked]['url'], commons_credit(sources[picked])) if picked else None
+    note.write_text(json.dumps(chosen or [], ensure_ascii=False), encoding='utf-8')
+    return chosen
 
 
 def drawn_picture(story):
@@ -290,11 +402,13 @@ def stock_photo(story, used):
 
 
 def process(workdir, legacy, check_rights=True, use_claude=True):
+    """images.json for the workdir: story number -> its photos ('photos': [{file, credit, video?}], shown in
+    turn; 'file' and 'credit' are the first), or a curated clip from the sheet ('video')."""
     edition = load_edition(root / 'news.json' if legacy else workdir / 'news.json')
     manifest, failed, used = {}, 0, set()
     for i, story in enumerate(edition['stories'], 1):
         title = ' '.join(story['title'])
-        credit, reason = None, None
+        credit, reason, pics = None, None, []
         if story.get('image') is False:  # the sheet says the article has no relevant photo
             reason = 'bài không có ảnh phù hợp'
         elif check_rights:
@@ -308,36 +422,62 @@ def process(workdir, legacy, check_rights=True, use_claude=True):
         if not reason:
             try:
                 name, cached = fetch_story_image(story)
-                manifest[str(i)] = {'article': story['url'], 'file': name, **({'credit': credit} if credit else {})}
+                pics.append({'file': name, **({'credit': credit} if credit else {})})
                 print(f'  {i}. {title}: {"có sẵn" if cached else "đã tải"} {name}{f" (ảnh: {credit})" if credit else ""}', flush=True)
             except Exception as e:
                 failed += 1
                 reason = f'CẢNH BÁO: không tải được ảnh ({e})'
-        if reason and use_claude:
+        # The sheet's "none" is about the share image (a reporter's photo, say): photos further down the
+        # article may still be handed out by a state body or a company, and the rights check reads each caption.
+        if check_rights or story.get('image') is not False:
             try:
-                found = found_photo(story)
+                more = more_article_photos(story, check_rights, MAX_PHOTOS - len(pics))
+            except Exception as e:  # the page didn't load: the share image or stand-ins still do
+                more = []
+                print(f'  {i}. {title}: không đọc được ảnh trong bài ({e})', flush=True)
+            for name, by in more:
+                pics.append({'file': name, **({'credit': by} if by else {})})
+                print(f'  {i}. {title}: thêm ảnh trong bài {name}{f" (ảnh: {by})" if by else ""}', flush=True)
+        memo = {}
+        def terms(story=story, memo=memo):  # asked of Claude once per story, and only when a search runs
+            if 'terms' not in memo:
+                memo['terms'] = ai_image.search_terms(story, story.get('image_query', ''))
+            return memo['terms']
+        if len(pics) < 2 and use_claude:  # the article's own photos are few: free photos of the subject fill in
+            try:
+                found = found_photos(story, terms, MAX_PHOTOS - len(pics))
             except Exception as e:  # no CLI, out of quota, an odd answer: drawing or the library may still work
-                found = None
+                found = []
                 print(f'  {i}. {title}: Claude không tìm được ảnh ({e})', flush=True)
-            if found:
-                manifest[str(i)] = {'article': story['url'], 'file': found[0], 'credit': found[1]}
-                print(f'  {i}. {title}: {reason}; Claude chọn ảnh {found[0]} ({found[1]})', flush=True)
-                reason = None
-        if reason and use_claude:
+            for name, by in found:
+                pics.append({'file': name, 'credit': by})
+                print(f'  {i}. {title}: {reason + "; " if reason else ""}Claude chọn ảnh {name} ({by})', flush=True)
+        if use_claude and not story.get('video'):  # moving pictures first: a free clip, when one fits, opens the story
+            try:
+                clip = found_clip(story, terms)
+                if clip:
+                    moving, still = fetch_story_clip({'video': clip[0]})
+                    pics.insert(0, {'file': still, 'credit': clip[1], 'video': moving})
+                    print(f'  {i}. {title}: Claude chọn video {moving} ({clip[1]})', flush=True)
+            except Exception as e:
+                print(f'  {i}. {title}: không lấy được video minh họa ({e})', flush=True)
+        if not pics and use_claude:
             try:
                 name, by = drawn_picture(story)
-                manifest[str(i)] = {'article': story['url'], 'file': name, 'credit': by}
+                pics.append({'file': name, 'credit': by})
                 print(f'  {i}. {title}: {reason}; Claude vẽ ảnh {name}', flush=True)
-                reason = None
             except Exception as e:  # no CLI, out of quota, a bad drawing: the library still has a photo
                 print(f'  {i}. {title}: Claude không vẽ được ({e})', flush=True)
-        if reason:
+        if not pics:
             picked = stock_photo(story, used)
             if picked:
-                manifest[str(i)] = {'article': story['url'], 'file': picked[0], 'credit': picked[1]}
+                pics.append({'file': picked[0], 'credit': picked[1]})
                 print(f'  {i}. {title}: {reason}; dùng ảnh minh họa {picked[0]}', flush=True)
             else:  # prepare.py falls back to the plain background
                 print(f'  {i}. {title}: {reason}; dùng nền không ảnh', flush=True)
+        if pics:
+            manifest[str(i)] = {'article': story['url'], 'file': pics[0]['file'], **({'credit': pics[0]['credit']} if pics[0].get('credit') else {}),
+                                'photos': pics}
         if story.get('video'):
             usable, why = video_allowed(story.get('video_credit'))
             if not usable:

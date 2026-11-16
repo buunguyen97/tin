@@ -5,6 +5,7 @@ import { playerSchema, type processedManuscriptSchema } from "@videofy/types";
 import ArticleProgress from "../Components/ArticleProgress";
 import { CardOverlay } from "../Components/CardOverlay";
 import { ImageAnimation } from "../Components/ImageAnimation";
+import { SlideLabels, Slideshow } from "../Components/Slideshow";
 import { MapComponent } from "../Components/Map/MapComponent";
 import PhotoCredits from "../Components/PhotoCredits";
 import { Text } from "../Components/Text";
@@ -153,6 +154,12 @@ export const ExternalDisplayArticle: FC<Props> = ({
           const segmentDurationSeconds = getSegmentDurationSeconds(segment, hasText);
           const moodMusicUrl = getMoodMusicUrl(config, segment.mood, segmentIndex);
           const textSequences = buildTextSequences(segment, segmentKey, config);
+          // Several photos (or clips) for one story: shown in turn under the card.
+          const shots = (segment.images || []).flatMap((asset) =>
+            asset.type === "image" || asset.type === "video" ? [asset] : []
+          );
+          const slideshow = shots.length > 1;
+          const frames = roundToNearestFrame(segmentDurationSeconds);
 
           return (
             <Series.Sequence
@@ -171,11 +178,19 @@ export const ExternalDisplayArticle: FC<Props> = ({
                 <MapComponent asset={primaryAsset} config={config} />
               )}
 
-              {primaryAsset?.type === "video" && (
+              {slideshow && (
+                <Slideshow
+                  shots={shots}
+                  durationInFrames={frames}
+                  movement={resolveCameraMovement(segment, segmentIndex, defaultCameraMovements)}
+                />
+              )}
+
+              {!slideshow && primaryAsset?.type === "video" && (
                 <VideoAsset asset={primaryAsset} volume={hasText ? 0 : 100} />
               )}
 
-              {primaryAsset?.type === "image" && (
+              {!slideshow && primaryAsset?.type === "image" && (
                 <ImageAnimation
                   asset={primaryAsset}
                   cameraMovement={resolveCameraMovement(
@@ -188,6 +203,8 @@ export const ExternalDisplayArticle: FC<Props> = ({
               )}
 
               {segment.overlay && <CardOverlay overlay={segment.overlay} />}
+
+              {slideshow && <SlideLabels shots={shots} durationInFrames={frames} />}
 
               {primaryAsset && primaryAsset.type !== "map" && primaryAsset.byline && (
                 <PhotoCredits byline={primaryAsset.byline} config={config} />

@@ -252,9 +252,10 @@ def plan_programmes(stories, programmes, day, config=None):
     plans = []
     for prog in programmes:
         f = prog.get('filter', {})
-        if f.get('urls'):  # a hot-news batch: the stories one scan found
+        if f.get('urls'):  # a hot-news batch: the stories one scan found, a very hot one leading
             wanted = set(f['urls'])
-            picked = sorted((s for s in stories if canonical_url(s['story']['url']) in wanted), key=lambda s: (s['hot_order'], s['order'], s['row']))
+            picked = sorted((s for s in stories if canonical_url(s['story']['url']) in wanted),
+                            key=lambda s: (not s['very_hot'], s['hot_order'], s['order'], s['row']))
         elif f.get('hot'):
             picked = sorted((s for s in stories if s['hot']), key=lambda s: (s['hot_order'], s['order'], s['row']))
         else:
@@ -323,7 +324,8 @@ def assign_batches(stories, day, now=None):
 
 
 def batch_programmes(state, stories, config):
-    """One "Tin nóng" video per batch, and one video of its own for each very hot story (left out of its batch's video)."""
+    """One "Tin nóng" video per batch; a very hot story leads it (see plan_programmes) rather than having a video of its own,
+    which held a single story and took a posting slot of its own."""
     base = next((p for p in config.get('programmes') or [] if p.get('filter', {}).get('hot')), {})
     common = {k: v for k, v in base.items() if k in ('accent', 'voice', 'layouts', 'intro_image', 'brand', 'outro', 'intro_accent')}
     by_url = {canonical_url(s['story']['url']): s for s in stories}
@@ -332,13 +334,9 @@ def batch_programmes(state, stories, config):
         if not b['id'].isdigit():
             continue  # stories already used another way (the sector videos of the day the switch was made)
         urls = [u for u in b['urls'] if u in by_url]
-        single = [u for u in urls if by_url[u]['very_hot']]
-        rest = [u for u in urls if u not in single]
         part = next(name for hour, name in PARTS if int(b['id'][:2]) < hour)
-        if rest:
-            progs.append({**common, 'id': f'tin-nong-{b["id"]}', 'title': f'TIN NÓNG {part}', 'filter': {'urls': rest}, 'min': 1, 'max': 6})
-        for k, u in enumerate(single, 1):
-            progs.append({**common, 'id': f'nong-{b["id"]}-{k}', 'title': 'TIN NÓNG', 'filter': {'urls': [u]}, 'min': 1, 'max': 1})
+        if urls:
+            progs.append({**common, 'id': f'tin-nong-{b["id"]}', 'title': f'TIN NÓNG {part}', 'filter': {'urls': urls}, 'min': 1, 'max': 6})
     return progs
 
 

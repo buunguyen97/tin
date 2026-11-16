@@ -61,16 +61,15 @@ class Batches(unittest.TestCase):
         state = self.assign([story(1, hot=False), story(2, hot=False)], 7)
         self.assertEqual(state['batches'], [])
 
-    def test_programmes_one_per_batch_and_one_per_very_hot_story(self):
-        stories = [story(1), story(2, very_hot=True), story(3)]
+    def test_one_video_per_batch_led_by_its_very_hot_story(self):
+        stories = [story(1), story(2), story(3, very_hot=True)]
         state = self.assign(stories, 12, 5)
         progs = sheet_to_news.batch_programmes(state, stories, {'programmes': [{'id': 'tong-hop', 'filter': {'hot': True}, 'accent': '#FFD21F'}]})
-        self.assertEqual([p['id'] for p in progs], ['tin-nong-1205', 'nong-1205-1'])
+        self.assertEqual([p['id'] for p in progs], ['tin-nong-1205'])
         self.assertEqual(progs[0]['title'], 'TIN NÓNG TRƯA')
-        self.assertEqual(len(progs[0]['filter']['urls']), 2)  # the very hot story has its own video, not a second place here
         self.assertEqual(progs[0]['accent'], '#FFD21F')
         plans = sheet_to_news.plan_programmes(stories, progs, DAY, {})
-        self.assertEqual([len(e['stories']) for _, e, _ in plans], [2, 1])
+        self.assertEqual([s['title'][0] for s in plans[0][1]['stories']], ['Tin 3', 'Tin 1', 'Tin 2'])
 
     def test_a_batch_video_goes_by_hot_order(self):
         stories = [story(1, hot_order=3), story(2, hot_order=1), story(3, hot_order=2)]

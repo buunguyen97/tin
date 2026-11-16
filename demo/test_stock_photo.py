@@ -91,7 +91,7 @@ def _page(index, title, licence, width=2000, height=1300):
 
 class CommonsCandidatesTest(unittest.TestCase):
     def test_only_free_landscape_modern_photos_in_search_order(self):
-        pages = [_page(1, 'Knesset at night', 'CC BY-SA 4.0'),      # needs attribution and share-alike
+        pages = [_page(1, 'Knesset at night', 'CC BY-NC 4.0'),      # not for commercial use
                  _page(2, 'Knesset tower', 'CC0', 1000, 1600),      # portrait
                  _page(3, 'Knesset panorama', 'CC0', 8000, 1000),   # too wide for any card
                  _page(4, 'Knesset stereo card', 'Public domain'),  # an old scan
@@ -103,6 +103,15 @@ class CommonsCandidatesTest(unittest.TestCase):
             found = fetch_images.commons_candidates('Knesset')
         self.assertEqual([f['title'] for f in found], ['Knesset from the south.jpg', 'Knesset garden.jpg'])
         self.assertEqual(found[0]['licence'], 'Public domain')
+
+    def test_attribution_licences_keep_their_author(self):
+        page = _page(1, 'Jensen Huang Stanford', 'CC BY 4.0')
+        page['imageinfo'][0]['extmetadata']['Artist'] = {'value': '<a href="x">Anders Eidesvik</a>'}
+        answer = json.dumps({'query': {'pages': {'1': page}}}).encode()
+        with mock.patch.object(fetch_images.subprocess, 'run', return_value=mock.Mock(returncode=0, stdout=answer)):
+            found = fetch_images.commons_candidates('Jensen Huang')
+        self.assertEqual(fetch_images.commons_credit(found[0]), 'Wikimedia Commons (CC BY 4.0, Anders Eidesvik)')
+        self.assertEqual(fetch_images.commons_credit({'licence': 'CC0'}), 'Wikimedia Commons (CC0)')
 
     def test_commons_busy_gives_nothing(self):
         with mock.patch.object(fetch_images.subprocess, 'run', return_value=mock.Mock(returncode=0, stdout=b'<html>busy')):
@@ -120,31 +129,47 @@ class FoundPhotoTest(unittest.TestCase):
                    mock.patch.object(fetch_images, 'download_photo', fake_download),
                    mock.patch.object(fetch_images.time, 'sleep'),
                    mock.patch.object(fetch_images, 'commons_candidates',
-                                     return_value=[{'title': 'A.jpg', 'licence': 'CC0', 'url': 'u1'}, {'title': 'B.jpg', 'licence': 'Public domain', 'url': 'u2'}]),
+                                     return_value=[{'title': 'A.jpg', 'licence': 'CC0', 'url': 'u1'},
+                                                   {'title': 'B.jpg', 'licence': 'CC BY-SA 4.0', 'artist': 'Ann', 'url': 'u2'}]),
                    mock.patch.object(fetch_images.ai_image, 'search_terms', return_value=['Knesset'])]
         for p in patches:
             p.start(); self.addCleanup(p.stop)
 
-    def test_claude_choice_is_kept_with_its_licence_and_not_asked_again(self):
-        with mock.patch.object(fetch_images.ai_image, 'pick_photo', return_value='02.jpg') as pick:
-            name, credit = fetch_images.found_photo(self.story)
-            self.assertEqual(fetch_images.found_photo(self.story), (name, credit))
-        self.assertEqual(credit, 'Wikimedia Commons (Public domain)')
-        self.assertTrue((self.assets / name).exists())
+    def test_claude_choices_are_kept_with_their_licences_and_not_asked_again(self):
+        with mock.patch.object(fetch_images.ai_image, 'pick_photos', return_value=['02.jpg', '01.jpg']) as pick:
+            found = fetch_images.found_photos(self.story)
+            self.assertEqual(fetch_images.found_photos(self.story), found)
+        self.assertEqual([credit for _, credit in found], ['Wikimedia Commons (CC BY-SA 4.0, Ann)', 'Wikimedia Commons (CC0)'])
+        self.assertTrue(all((self.assets / name).exists() for name, _ in found))
         self.assertEqual(pick.call_count, 1)
         self.assertEqual(pick.call_args.args[2], {'01.jpg': 'A.jpg', '02.jpg': 'B.jpg'})
 
     def test_no_fitting_photo_is_remembered(self):
-        with mock.patch.object(fetch_images.ai_image, 'pick_photo', return_value=None) as pick:
-            self.assertIsNone(fetch_images.found_photo(self.story))
-            self.assertIsNone(fetch_images.found_photo(self.story))
+        with mock.patch.object(fetch_images.ai_image, 'pick_photos', return_value=[]) as pick:
+            self.assertEqual(fetch_images.found_photos(self.story), [])
+            self.assertEqual(fetch_images.found_photos(self.story), [])
         self.assertEqual(pick.call_count, 1)
 
     def test_commons_down_is_not_remembered(self):
         with mock.patch.object(fetch_images, 'commons_candidates', return_value=[]):
-            self.assertIsNone(fetch_images.found_photo(self.story))
-        with mock.patch.object(fetch_images.ai_image, 'pick_photo', return_value='01.jpg'):
-            self.assertIsNotNone(fetch_images.found_photo(self.story))
+            self.assertEqual(fetch_images.found_photos(self.story), [])
+        with mock.patch.object(fetch_images.ai_image, 'pick_photos', return_value=['01.jpg']):
+            self.assertEqual(len(fetch_images.found_photos(self.story)), 1)
+
+    def test_search_terms_are_asked_only_on_a_cache_miss(self):
+        asked = mock.Mock(return_value=['Knesset'])
+        with mock.patch.object(fetch_images.ai_image, 'pick_photos', return_value=['01.jpg']):
+            fetch_images.found_photos(self.story, asked)
+            fetch_images.found_photos(self.story, asked)
+        self.assertEqual(asked.call_count, 1)
+
+    def test_a_clip_is_chosen_by_its_first_frame(self):
+        clips = [{'title': 'Hanoi traffic.ogv', 'licence': 'CC BY-SA 2.0', 'artist': 'Bob', 'url': 'https://up/clip.ogv', 'thumb': 't1'}]
+        with mock.patch.object(fetch_images, 'commons_search', return_value=clips), \
+                mock.patch.object(fetch_images.ai_image, 'pick_clip', return_value='01.jpg') as pick:
+            self.assertEqual(fetch_images.found_clip(self.story, ['Hanoi traffic']), ('https://up/clip.ogv', 'Wikimedia Commons (CC BY-SA 2.0, Bob)'))
+            self.assertEqual(fetch_images.found_clip(self.story, ['Hanoi traffic']), ('https://up/clip.ogv', 'Wikimedia Commons (CC BY-SA 2.0, Bob)'))
+        self.assertEqual(pick.call_count, 1)
 
 
 class ClaudeAnswersTest(unittest.TestCase):
@@ -157,6 +182,13 @@ class ClaudeAnswersTest(unittest.TestCase):
         for answer, expected in [('{"file": "01.jpg"}', '01.jpg'), ('Chọn: {"file": null}', None), ('{"file": "../secret.jpg"}', None)]:
             with mock.patch.object(ai_image, 'ask_claude', return_value=answer):
                 self.assertEqual(ai_image.pick_photo({'title': ['T']}, 'x', photos), expected)
+
+    def test_several_picks_keep_only_files_shown_in_order(self):
+        photos = {'01.jpg': 'A', '02.jpg': 'B', '03.jpg': 'C'}
+        with mock.patch.object(ai_image, 'ask_claude', return_value='{"files": ["03.jpg", "../x.jpg", "01.jpg", "03.jpg"]}'):
+            self.assertEqual(ai_image.pick_photos({'title': ['T']}, 'x', photos), ['03.jpg', '01.jpg'])
+        with mock.patch.object(ai_image, 'ask_claude', return_value='{"files": ["01.jpg", "02.jpg", "03.jpg"]}'):
+            self.assertEqual(ai_image.pick_photos({'title': ['T']}, 'x', photos, most=2), ['01.jpg', '02.jpg'])
 
     def test_an_answer_without_json_is_an_error(self):
         with mock.patch.object(ai_image, 'ask_claude', return_value='Xin lỗi'):

@@ -70,6 +70,61 @@ def photo_credit(page, image_url):
     return _credit_after(page, m) if m else ''
 
 
+PHOTO_SRC = re.compile(r'(?:data-original|data-src|src)="(https?://[^"]+?\.(?:jpe?g|png|webp)(?:\?[^"]*)?)"', re.I)
+NOT_A_PHOTO = re.compile(r'logo|icon|avatar|banner|sprite|placeholder|blank|qr|ads?[/_-]|/emoticon', re.I)
+
+
+def article_photos(page, most=8):
+    """[(url, credit)] of the photos in the article `page` (HTML), in page order: each photo's credit is
+    read from its own caption, the text up to the next photo, so one photo never takes another's credit."""
+    tags = list(IMG.finditer(page))
+    found, seen = [], set()
+    for k, m in enumerate(tags):
+        tag = m.group(0)
+        src = PHOTO_SRC.search(tag)
+        if not src or NOT_A_PHOTO.search(tag):
+            continue
+        url = html.unescape(src.group(1))
+        stem = urlsplit(url).path.rsplit('/', 1)[-1][:40]
+        if stem in seen:  # the same photo in several sizes
+            continue
+        end = tags[k + 1].start() if k + 1 < len(tags) else len(page)
+        span = page[m.end():min(end, m.end() + 3000)]
+        cap, fig = CAPTION.search(span), FIGCAPTION.search(span)
+        alt = ' '.join(html.unescape(x) for x in re.findall(r'(?:alt|title)="([^"]*)"', tag))
+        caption = _clean(cap.group(2)) if cap else _clean(fig.group(1)) if fig else _clean(alt)
+        credit = CREDIT.search(caption) or CREDIT.search(alt)
+        seen.add(stem)
+        found.append((url, credit.group(1).strip(' .;,)') if credit else ''))
+        if len(found) == most:
+            break
+    return found
+
+
+# A Commons photo under CC BY or CC BY-SA is credited 'Wikimedia Commons (CC BY 4.0, Author)': the card
+# must then name the author and the licence.
+ATTRIBUTED = re.compile(r'^Wikimedia Commons \((CC[ -]BY[^,]*), (.+)\)$')
+
+
+def attribution(credit):
+    """'Author, CC BY 4.0' for a photo whose licence asks for its author to be named, else ''."""
+    found = ATTRIBUTED.match(credit or '')
+    return f'{found.group(2)}, {found.group(1)}' if found else ''
+
+
+def photo_label(credit, clip=False):
+    """What the card says on a photo (or clip) credited to `credit`, or None: a stand-in is called one, so it
+    isn't taken for a picture of the event, and its author is named when the licence asks for it."""
+    if is_drawn(credit):
+        return 'Đồ họa AI'
+    if is_stock(credit):
+        label = 'Video minh họa' if clip else 'Ảnh minh họa'
+        return f'{label} · {attribution(credit)}' if attribution(credit) else label
+    if shows_credit(credit):
+        return f'Ảnh: {credit}'
+    return None
+
+
 def shows_credit(credit):
     """Whether the card names the photo's owner: government photos released on condition of a credit."""
     return bool(FREE_GOV.search(credit or ''))
@@ -98,6 +153,14 @@ def video_allowed(credit):
     if FREE_VIDEO.search(credit) and not AGENCIES.search(credit.replace('public domain', '')):
         return True, f'video {credit}'
     return False, f'video của {credit} không có giấy phép tự do'
+
+
+def handed_out(credit):
+    """Whether the credit plainly names a state body, an organiser, a company or a government that releases its
+    photos. judge() gives the benefit of the doubt to a bare brand-like credit for the share image; a story's
+    further photos need this plain sign ('TL', a reporter's name in capitals, 'X/...' don't count)."""
+    credit = (credit or '').strip()
+    return judge(credit)[0] and bool(FREE_GOV.search(credit) or OFFICIAL.search(credit) or COMPANY_VN.match(credit))
 
 
 def judge(credit):

@@ -14,7 +14,7 @@ NGÀY VÀ MỐC: chạy `TZ=Asia/Ho_Chi_Minh date '+%d/%m/%Y %H:%M'` để biế
 GOOGLE SHEET: <LINK GOOGLE SHEET> — tab "Tin". Dùng connector Google Sheets để đọc và ghi. Không có công cụ ghi được thì DỪNG và trả lời: "Thiếu quyền ghi Google Sheet: cần gắn connector Google vào routine".
 
 BƯỚC 1 — TÍN HIỆU NÓNG (chỉ để chấm điểm, KHÔNG phải nguồn tin). Tải bằng `curl -sL -A 'Mozilla/5.0'`:
-- https://vnexpress.net/rss/tin-noi-bat.rss và https://vnexpress.net/rss/tin-xem-nhieu.rss (sự kiện thế giới người Việt đang đọc)
+- https://vnexpress.net/rss/tin-noi-bat.rss và https://vnexpress.net/tin-xem-nhieu (sự kiện thế giới người Việt đang đọc; trang HTML: tiêu đề bài là thuộc tính title của các thẻ <a> trỏ tới bài dạng ...-1234567.html, xếp theo thứ tự trên trang. KHÔNG dùng https://vnexpress.net/rss/tin-xem-nhieu.rss: RSS này đã ngừng cập nhật, trả về tin năm 2021)
 - https://trends.google.com/trending/rss?geo=VN (từ khóa người Việt đang tìm). Google Trends: mỗi từ khóa có <ht:approx_traffic> (lượt tìm) và vài <ht:news_item_title> (bài báo gắn với từ khóa). Chỉ coi là khớp khi bài gắn với từ khóa nói đúng sự kiện của tin, không khớp vì trùng một từ chung.
 - https://news.google.com/rss/headlines/section/topic/WORLD?hl=vi&gl=VN&ceid=VN:vi (Google News Việt Nam, mục Thế giới: sự kiện quốc tế báo Việt đang đưa nhiều; <description> liệt kê các báo cùng đưa)
 - https://tuoitre.vn/tin-xem-nhieu.htm (Tuổi Trẻ xem nhiều; tiêu đề bài trong thẻ <h3>)

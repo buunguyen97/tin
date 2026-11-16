@@ -1,6 +1,6 @@
 import unittest
 
-from image_rights import judge, photo_credit, video_allowed
+from image_rights import article_photos, attribution, handed_out, judge, photo_credit, photo_label, video_allowed
 
 
 class JudgeTest(unittest.TestCase):
@@ -45,6 +45,32 @@ class PhotoCreditTest(unittest.TestCase):
 
     def test_no_caption(self):
         self.assertEqual(photo_credit('<p>no photo</p>', 'https://cdn.example/a.jpg'), '')
+
+
+class SeveralPhotosTest(unittest.TestCase):
+    def test_each_photo_takes_its_own_caption(self):
+        page = ('<img src="https://cdn.vn/a/logo.png">'
+                '<figure><img data-src="https://cdn.vn/2026/1.jpg"><figcaption>Hiện trường. Ảnh: Công an cung cấp</figcaption></figure>'
+                '<p>Đoạn văn.</p><img src="https://cdn.vn/2026/2.jpg"><p>Không có chú thích.</p>'
+                '<figure><img src="https://cdn.vn/2026/3.jpg"><figcaption>Ông A. Ảnh: Ngọc Thành</figcaption></figure>'
+                '<img src="https://cdn.vn/2026/1.jpg">')
+        self.assertEqual(article_photos(page), [('https://cdn.vn/2026/1.jpg', 'Công an cung cấp'), ('https://cdn.vn/2026/2.jpg', ''),
+                                                ('https://cdn.vn/2026/3.jpg', 'Ngọc Thành')])
+
+    def test_further_photos_need_a_plain_owner(self):
+        for credit in ('Công an TP HCM', 'VGP/Nhật Bắc', 'Bộ Y tế', 'Obayashi Việt Nam', 'White House'):
+            self.assertTrue(handed_out(credit), credit)
+        for credit in ('TL', 'CA LINH', 'X/Egyosint', 'Ngọc Thành', '', 'Reuters'):
+            self.assertFalse(handed_out(credit), credit)
+
+    def test_labels_name_the_author_when_the_licence_asks(self):
+        self.assertEqual(attribution('Wikimedia Commons (CC BY-SA 4.0, Anders Eidesvik)'), 'Anders Eidesvik, CC BY-SA 4.0')
+        self.assertEqual(photo_label('Wikimedia Commons (CC BY 4.0, Ann)'), 'Ảnh minh họa · Ann, CC BY 4.0')
+        self.assertEqual(photo_label('Wikimedia Commons (CC0)'), 'Ảnh minh họa')
+        self.assertEqual(photo_label('Wikimedia Commons (CC BY-SA 2.0, Bob)', clip=True), 'Video minh họa · Bob, CC BY-SA 2.0')
+        self.assertEqual(photo_label('Đồ họa AI'), 'Đồ họa AI')
+        self.assertEqual(photo_label('Kremlin.ru'), 'Ảnh: Kremlin.ru')
+        self.assertIsNone(photo_label('Bộ Công an'))
 
 
 if __name__ == '__main__':

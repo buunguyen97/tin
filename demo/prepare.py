@@ -3,7 +3,7 @@ from pathlib import Path
 from tts_audio import audio_duration, cache_path
 from datetime import date as Date
 from edition import load_edition, display_date, WEEKDAYS, VOICE_SAMPLES
-from image_rights import is_drawn, is_stock, shows_credit
+from image_rights import is_drawn, is_stock, photo_label, shows_credit
 from reup import ff
 import wording
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
@@ -242,6 +242,16 @@ def stock_tag(layout,label='Ảnh minh họa',grow=0):
  else: x,top=SAFE['left'],max(BAND[0] if layout=='phu-de' else 0,SAFE['top'])+16
  return [f'<rect x="{x}" y="{top}" width="{w}" height="{h}" rx="{h//2}" fill="#000000" fill-opacity=".45"/>',
          text(x+pad,top+20,label,size,'#FFFFFF',400,extra=' fill-opacity=".9"')]
+def photo_tag(layout,label,grow=0):
+ """The tag of one of a story's photos, as its own SVG layer: it shows while that photo does."""
+ room=photo_area(layout,grow)[2]-60
+ while text_width(label,18,400)+20>room and len(label)>12: label=label[:-2].rstrip(' ,·')+'…'
+ return ''.join([f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">',font_style(),*stock_tag(layout,label,grow),'</svg>'])
+SLIDE_SECONDS=2.6  # shortest time one of a story's photos stays on screen
+def story_photos(entry,duration):
+ """The photos (and free clips) a story shows in turn: as many of fetch_images.py's as fit its reading time."""
+ photos=(entry.get('photos') or [{'file':entry['file'],**({'credit':entry['credit']} if entry.get('credit') else {})}]) if entry else []
+ return photos[:max(1,int(duration//SLIDE_SECONDS))]
 CARDS={'goc':(_card_goc,62),'anh-tran-tren':(_card_photo_top,70),'anh-tran-vien':(_card_photo_bleed,64),'the-kem':(_card_cream,68),'phu-de':(_card_subtitle,60)}
 def fade(name,start,length,most=1):
  """Gradient `name` and the rects darkening the frame from y=`start` to `most` opacity, down to the bottom."""
@@ -253,14 +263,15 @@ def progress_bar(i,count,y):
  """One short bar per story at `y`, between the card and the caption, the stories told so far in yellow: the video is seen to be short."""
  left,right,gap=SAFE['left'],SAFE['right'],10; w=(right-left-gap*(count-1))/count
  return [f'<rect x="{left+k*(w+gap):.1f}" y="{y}" width="{w:.1f}" height="8" rx="4" fill="{YELLOW if k<=i else "#FFFFFF"}" fill-opacity="{1 if k<=i else .38}"/>' for k in range(count)]
-def card(edition,item,i,layout='goc',stock=False,clip=False,credit=None,drawn=False,progress=None):
+def card(edition,item,i,layout='goc',stock=False,clip=False,credit=None,drawn=False,progress=None,label=None):
  """Drawn by the player above the moving background, in one of LAYOUTS: 'mask' stays still and frames
  the photo, 'text' fades in over it, 'full' is both (the first frame and Studio's preview), 'grow' is
  how much taller the photo is (photo_area). For the short videos: 'head' is 'text' without the detail lines, 'cover' is 'head' on
  'mask', and 'steps' holds one layer per detail line, shown when the voice reaches it. Every text stays in TikTok's safe area (SAFE): clear of the
  tabs on top, the caption below and the button rail; a story too long for it gets a smaller headline.
  `stock`: the photo (or with `clip`, the video) is a library stand-in. `credit`: an owner the card
- must name ('Ảnh: Kremlin.ru')."""
+ must name ('Ảnh: Kremlin.ru'). `label`: the photo's tag as image_rights.photo_label words it ('' for none, when
+ each of a story's photos carries its own, photo_tag)."""
  build,size=CARDS[layout]
  for size in range(size,size-20,-4):
   s,end=build(item,size)
@@ -275,7 +286,10 @@ def card(edition,item,i,layout='goc',stock=False,clip=False,credit=None,drawn=Fa
  elif layout in BLEEDS:
   start,length=BLEEDS[layout]['fade']; mask+=fade('fade',start+grow,length)
  else: mask+=fade('fade',*SCRIM,most=.9)
- label='Đồ họa AI' if drawn else ('Video minh họa' if clip else 'Ảnh minh họa') if stock else f'Ảnh: {credit}' if credit else None
+ if label is None: label='Đồ họa AI' if drawn else ('Video minh họa' if clip else 'Ảnh minh họa') if stock else f'Ảnh: {credit}' if credit else None
+ if label:
+  room=photo_area(layout,grow)[2]-60
+  while text_width(label,18,400)+20>room and len(label)>12: label=label[:-2].rstrip(' ,·')+'…'
  words=[f'<g transform="translate(0 {grow})">',*s,'</g>',*(stock_tag(layout,label,grow) if label else []),*(progress_bar(*progress,SAFE['bottom']+8) if progress else [])]
  opening=f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">'
  style=[font_style(),'<defs><linearGradient id="box"><stop stop-color="#161616"/><stop offset="1" stop-color="#2E2710"/></linearGradient></defs>']
@@ -423,11 +437,15 @@ async def prepare(workdir,legacy,voice,model,force,short=False):
   duration=math.ceil((audio_duration(audio_file)+pad)*25)/25
   timings.append({'story':label,'audio':audio_file.name,'cached':cached,'generation_seconds':round(time.monotonic()-started,2),'video_seconds':duration})
   return audio_file,duration,cached
- def manuscript(key,title,byline,script,audio_file,duration,frame,overlay,video=None,move='none',area=None):
+ def shown_asset(key,title,duration,frame=None,video=None,area=None,label=None):
   shown=({'type':'video','url':url(video),'startFrom':0,'endAt':duration,'videoAsset':{'id':str(key),'title':title,'duration':duration*1000,'streamUrls':{}}} if video
          else {'type':'image','imageAsset':{'id':str(key),'size':{'width':W,'height':H}},'url':url(frame)})
   if area and not video: shown['hotspot']=dict(zip(('x','y','width','height'),area))  # the zoom's centre, so the photo keeps covering its area
-  return {'meta':{'title':title,'pubdate':edition['date']+'T06:00:00Z','byline':byline,'id':key,'uniqueId':f'news-{key}','description':script,'audio':{'src':url(audio_file)}},'segments':[{'id':1,'mood':'neutral','type':'text','style':'bottom','texts':[{'type':'text','text':script,'line_id':1,'who':'default','start':0,'end':duration}],'cameraMovement':move,'images':[shown],'overlay':overlay,'start':0,'end':duration}]}
+  if label: shown['label']=url(label)
+  return shown
+ def manuscript(key,title,byline,script,audio_file,duration,frame,overlay,video=None,move='none',area=None,images=None):
+  shown=shown_asset(key,title,duration,frame,video,area)
+  return {'meta':{'title':title,'pubdate':edition['date']+'T06:00:00Z','byline':byline,'id':key,'uniqueId':f'news-{key}','description':script,'audio':{'src':url(audio_file)}},'segments':[{'id':1,'mood':'neutral','type':'text','style':'bottom','texts':[{'type':'text','text':script,'line_id':1,'who':'default','start':0,'end':duration}],'cameraMovement':move,'images':images or [shown],'overlay':overlay,'start':0,'end':duration}]}
  if edition.get('intro_title') and edition.get('intro') and not short:
   audio_file,duration,cached=await record(edition['intro'],'intro',pad=.6)
   frame=intro_frame(edition,{k:v for k,v in photos.items() if not is_stock(v.get('credit')) and not is_drawn(v.get('credit'))} or photos,out_dir/'intro-frame.jpg')
@@ -443,12 +461,28 @@ async def prepare(workdir,legacy,voice,model,force,short=False):
   entry=photos.get(str(i+1))  # fetch_images.py already left out photos that can't be used
   layout=figures[i%len(figures)] if short else layouts[i%len(layouts)]
   if layout in PHOTO_ONLY and not entry: layout='goc'  # a photo layout without a photo would leave the frame empty
-  clip=entry.get('video') if entry else None  # a free-licence clip plays in the photo area
+  clip=entry.get('video') if entry else None  # a curated free-licence clip plays in the photo area all along
+  shots=[] if clip else story_photos(entry,duration)  # else the story's photos (and found clips), one after another
+  several=len(shots)>1 or any(p.get('video') for p in shots)
   stock=bool(entry) and is_stock(entry.get('video_credit') if clip else entry.get('credit') or item.get('image_credit'))
   owner=entry.get('credit') if entry and not clip else None
-  drawn_card=card(edition,item,i,layout,stock,bool(clip),owner if shows_credit(owner) else None,is_drawn(owner),progress=(i,len(news)) if short and len(news)>1 else None); grow=drawn_card['grow']
+  tag='' if several else photo_label(entry.get('video_credit') if clip else entry.get('credit') or item.get('image_credit'),bool(clip)) if entry else None
+  drawn_card=card(edition,item,i,layout,stock,bool(clip),owner if shows_credit(owner) else None,is_drawn(owner),progress=(i,len(news)) if short and len(news)>1 else None,label=tag); grow=drawn_card['grow']
   frame=background(item,assets/entry['file'] if entry else None,out_dir/f'bg-{i+1}-frame.jpg',layout,grow)
   video=video_background(layout,assets/clip,duration,out_dir/f'bg-{i+1}.mp4',grow) if clip else None
+  images=None
+  if several:
+   part=duration/len(shots); images=[]
+   for k,shot in enumerate(shots,1):
+    label=photo_label(shot.get('credit'),bool(shot.get('video')))
+    tag_file=out_dir/f'{i+1}-photo-{k}.svg' if label else None
+    if tag_file: tag_file.write_text(photo_tag(layout,label,grow))
+    if shot.get('video'):  # a little longer than its turn: the next photo fades in over it
+     moving=video_background(layout,assets/shot['video'],round(part+.6,2),out_dir/f'bg-{i+1}-{k}.mp4',grow)
+     images.append(shown_asset(f'{i+1}.{k}',' '.join(item['title']),round(part+.6,2),video=moving,label=tag_file))
+    else:
+     still=background(item,assets/shot['file'],out_dir/f'bg-{i+1}-frame-{k}.jpg',layout,grow)
+     images.append(shown_asset(f'{i+1}.{k}',' '.join(item['title']),part,still,area=photo_area(layout,grow),label=tag_file))
   files={part:out_dir/f'{i+1}{suffix}.svg' for part,suffix in (('full',''),('mask','-mask'),('text','-text'),('head','-head'),('cover','-cover'))}
   for part,path in files.items(): path.write_text(drawn_card[part])
   whole,words=('cover','head') if short else ('full','text')
@@ -458,7 +492,7 @@ async def prepare(workdir,legacy,voice,model,force,short=False):
    overlay['steps']=[]
    for k,(layer,at) in enumerate(zip(drawn_card['steps'],step_times(script,duration-pad,len(drawn_card['steps'])))):
     (out_dir/f'{i+1}-step-{k+1}.svg').write_text(layer); overlay['steps'].append({'url':url(out_dir/f'{i+1}-step-{k+1}.svg'),'at':at})
-  manuscripts.append(manuscript(i+1,' '.join(item['title']),item['source'],script,audio_file,duration,frame,overlay,video,'zoom-in' if i%2==0 else 'zoom-out',photo_area(layout,grow)))
+  manuscripts.append(manuscript(i+1,' '.join(item['title']),item['source'],script,audio_file,duration,frame,overlay,video,'zoom-in' if i%2==0 else 'zoom-out',photo_area(layout,grow),images))
   total+=duration; print(f'  {i+1}. {" ".join(item["title"])}: {duration}s{" (giọng có sẵn)" if cached else ""}',flush=True)
  captions=workdir/'captions.ass'
  if short: write_captions(said,captions)
